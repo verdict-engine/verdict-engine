@@ -1,0 +1,24 @@
+# payment.vd — the Rule DSL, versioned in git, hot-reloaded on change.
+# Rules only PROPOSE (add weight + a tag). They never decide.
+
+rule high_velocity {
+  when  velocity.attemptsLast2m > 4
+  then  score += 28, tag "velocity"
+}
+
+rule new_device_takeover {
+  when  device.firstSeen == true and geo.ipSimMismatch == true
+  then  score += 33, tag "takeover"
+}
+
+rule dormant_high_amount {
+  when  velocity.attemptsLast24h == 0 and event.amount > 3000
+  then  score += 14, tag "anomaly"
+}
+
+# The verdict comes from the policy, not from here:
+#
+#   policy payment_authorize {
+#     bands { allow 0..34 · review 35..69 → queue "risk-ops" · deny 70..100 }
+#     on_error fail_open
+#   }

@@ -1,0 +1,16 @@
+node_modules
+dist
+data
+.git
+.eslintrc.cjs
+**/*.spec.ts
+test
+coverage
+*.log
+.agents
+ARCHITECTURE.md
+AGENTS.md
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore

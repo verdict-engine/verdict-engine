@@ -1,0 +1,45 @@
+{
+  "name": "verdict-engine",
+  "version": "0.7.0",
+  "description": "Open-source fraud & risk decisioning engine — a modular monolith whose seams are already service boundaries.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run test",
+    "audit:ci": "npm audit --omit=dev --audit-level=high"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/platform-express": "^10.4.0",
+    "@nestjs/swagger": "^7.4.2",
+    "ioredis": "^6.0.0",
+    "pg": "^8.12.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.0",
+    "@nestjs/testing": "^10.4.0",
+    "@swc/core": "^1.7.0",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.6",
+    "@types/supertest": "^6.0.2",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-boundaries": "^4.2.2",
+    "supertest": "^7.0.0",
+    "typescript": "^5.5.0",
+    "unplugin-swc": "^1.5.1",
+    "vitest": "^2.0.0",
+    "vitest-mock-extended": "^2.0.0"
+  }
+}
