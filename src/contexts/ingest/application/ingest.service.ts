@@ -57,6 +57,7 @@ export class IngestService implements IngestPort {
       subject: {
         userId: subject.userId as UserId,
         deviceId: typeof subject.deviceId === "string" ? (subject.deviceId as DeviceId) : undefined,
+        fingerprint: typeof subject.fingerprint === "string" ? subject.fingerprint.slice(0, 128) : undefined,
         ip: typeof subject.ip === "string" ? subject.ip : undefined,
         phone: typeof subject.phone === "string" ? subject.phone : undefined,
         channel: typeof subject.channel === "string" ? subject.channel : undefined,

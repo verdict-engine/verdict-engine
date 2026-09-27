@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Pool, type PoolClient } from "pg";
-import type { Collection, Store, TxContext } from "../ports/store.port";
+import type { Collection, Store, StoreStats, TxContext } from "../ports/store.port";
+import { causeMessage, logEvent } from "../observability/log";
 import { runMigrations } from "../migrations/runner";
 
 /** Anything we can run a parameterized query against — the pool, or a client inside a transaction. */
@@ -103,6 +104,28 @@ export class PgStore implements Store {
       throw cause;
     } finally {
       client.release();
+    }
+  }
+
+  async stats(): Promise<StoreStats> {
+    const size = await this.pool.query<{ bytes: string }>("SELECT pg_total_relation_size('documents') AS bytes");
+    const rows = await this.pool.query<{ name: string; rows: string }>(
+      "SELECT collection AS name, count(*)::bigint AS rows FROM documents GROUP BY collection ORDER BY count(*) DESC",
+    );
+    return {
+      totalBytes: Number(size.rows[0]?.bytes ?? 0),
+      collections: rows.rows.map((r) => ({ name: r.name, rows: Number(r.rows) })),
+    };
+  }
+
+  async reclaim(): Promise<void> {
+    // Plain VACUUM (never FULL — that locks the table) returns dead space to the table's freelist for
+    // reuse after the retention prune's deletes. Autovacuum also handles this; this makes it prompt.
+    // VACUUM cannot run inside a transaction block, so it goes straight to the pool in autocommit.
+    try {
+      await this.pool.query("VACUUM documents");
+    } catch (cause) {
+      logEvent("warn", "store.reclaim_failed", { cause: causeMessage(cause) });
     }
   }
 }

@@ -93,6 +93,11 @@ export class DecideService implements DecidePort {
     return ok(decision);
   }
 
+  /** O(1) read of a committed decision by idempotency key — used to poll an async submission's result. */
+  lookup(idempotencyKey: string): Promise<Decision | undefined> {
+    return this.idempotency.get(idempotencyKey);
+  }
+
   private async evaluate(event: RiskEvent, policy: Policy): Promise<Outcome> {
     try {
       const list = await this.lists.check(event);

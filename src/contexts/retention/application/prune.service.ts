@@ -1,9 +1,21 @@
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { PRUNE_TARGETS, RETENTION } from "../../../config/retention";
+import { DISK } from "../../../config/disk";
 import { CLOCK, type Clock } from "@shared/ports/clock.port";
 import { STORE, type Store } from "@shared/ports/store.port";
 import { causeMessage, logEvent } from "@shared/observability/log";
-import { retentionLastRunSeconds, retentionPrunedTotal } from "@shared/observability/metrics";
+import { diskHealth } from "@shared/observability/disk-health";
+import { storageComponents } from "@shared/observability/storage-breakdown";
+import {
+  diskComponentBytes,
+  diskFreeBytes,
+  diskTotalBytes,
+  diskUsedRatio,
+  retentionLastRunSeconds,
+  retentionPrunedTotal,
+  storageBytes,
+  storageRows,
+} from "@shared/observability/metrics";
 import { RETENTION_SETTINGS, type RetentionSettings } from "./retention-settings";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -73,6 +85,37 @@ export class PruneService implements OnModuleInit, OnModuleDestroy {
       }
     }
     retentionLastRunSeconds.set(Math.floor(Date.now() / 1000));
+
+    // Disk management: reclaim space if this sweep deleted anything and it's enabled, then sample
+    // storage stats into metrics so operators can see what's growing and tune retention.
+    const deleted = Object.values(pruned).reduce((a, b) => a + b, 0);
+    if (deleted > 0 && RETENTION.vacuum) await this.store.reclaim();
+    await this.sampleStorage();
+
     return { ranAt: this.clock.isoNow(), pruned };
+  }
+
+  /**
+   * Publish document-store size + per-collection row counts, filesystem health of the monitored
+   * disks, and the per-service disk breakdown as gauges. Best-effort — a probe failure is logged, not
+   * thrown, so it never disrupts a sweep.
+   */
+  private async sampleStorage(): Promise<void> {
+    try {
+      const stats = await this.store.stats();
+      storageBytes.set(stats.totalBytes);
+      for (const c of stats.collections) storageRows.set(c.rows, { collection: c.name });
+
+      for (const d of await diskHealth(DISK.paths)) {
+        diskTotalBytes.set(d.totalBytes, { path: d.path });
+        diskFreeBytes.set(d.freeBytes, { path: d.path });
+        diskUsedRatio.set(d.usedPercent / 100, { path: d.path });
+      }
+      for (const c of await storageComponents(stats.totalBytes)) {
+        diskComponentBytes.set(c.bytes, { component: c.name });
+      }
+    } catch (cause) {
+      logEvent("warn", "retention.stats_failed", { cause: causeMessage(cause) });
+    }
   }
 }

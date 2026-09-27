@@ -31,6 +31,16 @@ export interface TxContext {
  */
 export interface Store extends TxContext {
   transaction<R>(fn: (tx: TxContext) => Promise<R>): Promise<R>;
+  /** Storage stats for disk management — total size on disk and per-collection row counts. */
+  stats(): Promise<StoreStats>;
+  /** Reclaim dead space left by large deletes (VACUUM on Postgres; a no-op in memory). Non-blocking. */
+  reclaim(): Promise<void>;
+}
+
+export interface StoreStats {
+  /** Total bytes the store occupies on disk (0 when unknown, e.g. in-memory). */
+  readonly totalBytes: number;
+  readonly collections: ReadonlyArray<{ readonly name: string; readonly rows: number }>;
 }
 
 export const STORE = Symbol("Store");

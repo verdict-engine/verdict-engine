@@ -64,6 +64,26 @@ services:
       - RETENTION_DEAD_LETTER_DAYS=${RETENTION_DEAD_LETTER_DAYS:-30}
       # Default per-channel alert throttle (alerts/minute; 0 = unlimited).
       - NOTIFY_THROTTLE_PER_MIN=${NOTIFY_THROTTLE_PER_MIN:-60}
+      # ML model source (SCORER=ml). Unset = bundled weights; load from a file, https URL, or S3.
+      - MODEL_SOURCE=${MODEL_SOURCE:-}
+      - MODEL_PATH=${MODEL_PATH:-}
+      - MODEL_URL=${MODEL_URL:-}
+      - MODEL_S3_ENDPOINT=${MODEL_S3_ENDPOINT:-}
+      - MODEL_S3_REGION=${MODEL_S3_REGION:-}
+      - MODEL_S3_BUCKET=${MODEL_S3_BUCKET:-}
+      - MODEL_S3_KEY=${MODEL_S3_KEY:-}
+      - MODEL_S3_ACCESS_KEY_ID=${MODEL_S3_ACCESS_KEY_ID:-}
+      - MODEL_S3_SECRET_ACCESS_KEY=${MODEL_S3_SECRET_ACCESS_KEY:-}
+      - MODEL_REFRESH_MINUTES=${MODEL_REFRESH_MINUTES:-0}
+      # Reclaim disk after a prune sweep that deleted rows (Postgres VACUUM).
+      - RETENTION_VACUUM=${RETENTION_VACUUM:-false}
+      # Filesystem paths whose disk health to report at GET /v1/config/storage (comma-separated).
+      # The engine only sees filesystems mounted into its OWN container. To watch the Postgres
+      # volume from here, uncomment the read-only mount below and set this to /monitor/db.
+      - DISK_HEALTH_PATHS=${DISK_HEALTH_PATHS:-}
+    # volumes:
+    #   # Read-only view of the database volume so the engine can report its disk health.
+    #   - verdict-db:/monitor/db:ro
 
   dashboard:
     build: ../verdict-dashboard

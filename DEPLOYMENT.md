@@ -52,7 +52,15 @@ insecure process.
 | `REDIS_URL` | engine | — | — | `redis://host:6379`. Shares idempotency, velocity counters and rate limits across replicas. **Required to run more than one engine replica.** Unset = per-replica (single-node). |
 | `PERSISTENCE` | engine | — | auto | Set to `memory` to **explicitly** accept a non-persistent deploy (data lost on restart). Only for demos. |
 | `PORT` | engine | — | `4000` | HTTP port. |
-| `SCORER` | engine | — | `weighted` | `weighted` (hand weights) or `learned` (adaptive model trained from your labels). |
+| `SCORER` | engine | — | `weighted` | `weighted` (hand weights), `learned` (adaptive model trained from your labels), or `ml` (trained logistic-regression model over the full feature vector; weights committed at `src/contexts/scoring/model/`, retrain with `npm run train:model`). All implement the same port. |
+| `MODEL_SOURCE` | engine | — | auto | Where the ML model's weights come from: `bundled` (default), `disk`, `url`, or `s3`. If unset it's inferred from what you configure (S3 → disk → URL → bundled). Only used when `SCORER=ml`; a source that fails to load/validate falls back to the bundled weights. |
+| `MODEL_PATH` | engine | — | — | **Disk source.** Path to a local JSON weights file (a mounted volume / ConfigMap), e.g. `/models/verdict-weights.json`. |
+| `MODEL_URL` | engine | — | — | **URL source.** HTTPS URL to the weights — a CDN or a presigned object. |
+| `MODEL_S3_ENDPOINT` / `MODEL_S3_REGION` | engine | — | — / `us-east-1` | **S3 source.** Endpoint of the S3-compatible store (`https://s3.amazonaws.com`, or a MinIO/R2/Spaces URL) and its region. |
+| `MODEL_S3_BUCKET` / `MODEL_S3_KEY` | engine | — | — | Bucket and object key of the weights file. |
+| `MODEL_S3_ACCESS_KEY_ID` / `MODEL_S3_SECRET_ACCESS_KEY` | engine | — | — | S3 credentials (SigV4-signed GET, no SDK). Read from env, never logged. |
+| `MODEL_REFRESH_MINUTES` | engine | — | `0` (load once) | How often to re-load the model source, so a new model rolls out live. `0` loads once at boot. |
+| `MODEL_FETCH_TIMEOUT_MS` | engine | — | `5000` | Timeout for a URL/S3 model fetch. |
 | `RATE_LIMIT_DECISIONS_PER_MIN` | engine | — | `600` | Per-API-key budget for `POST /v1/decisions`. The startup **default** — an admin can override it at runtime from the dashboard (Configure → Rate limits) or `PUT /v1/config/rate-limits`, no redeploy. |
 | `RATE_LIMIT_LOGIN_PER_MIN` | engine | — | `10` | Per-IP budget for `POST /v1/auth/login` (brute-force brake). Runtime-overridable like the above. |
 | `TRUST_PROXY` | engine | — | `false` (trust none) | Proxy hops to trust for the real client IP. Default ignores `X-Forwarded-For` so it can't be spoofed; behind one proxy/LB set `1`, behind two set `2`. Wrong value = per-IP limits key on the proxy's IP or a spoofable header. |
@@ -65,6 +73,8 @@ insecure process.
 | `RETENTION_IDEMPOTENCY_DAYS` | engine | — | `7` | Days to keep idempotency keys (only need to outlive client retries). `0` = forever. Runtime-overridable. |
 | `RETENTION_DEAD_LETTER_DAYS` | engine | — | `30` | Days to keep dead-lettered outbox rows. `0` = forever. Runtime-overridable. |
 | `NOTIFY_THROTTLE_PER_MIN` | engine | — | `60` | Default cap on alerts delivered to a single channel per minute (excess is dropped, not queued). `0` = unlimited. A channel can override it at registration. |
+| `RETENTION_VACUUM` | engine | — | `false` | When `true`, run a (non-locking) `VACUUM` after a prune sweep that deleted rows, returning dead space for reuse promptly. Autovacuum handles this otherwise; enable if you prune large volumes and want space reclaimed sooner. |
+| `DISK_HEALTH_PATHS` | engine | — | container fs + model volume | Comma-separated filesystem paths whose disk health (`total`/`free`/`used`) is reported at `GET /v1/config/storage` and in the `verdict_disk_*` metrics. Only filesystems mounted into the engine's own container are visible; bind-mount a sibling volume (read-only) to watch it. See §9. |
 | `VERDICT_API_URL` | dashboard | yes | `http://engine:4000` | Where the dashboard reaches the engine (server-side; no CORS). |
 
 **Production boot fails** unless `AUTH_SECRET` is a real secret and `DATABASE_URL` is a
@@ -285,6 +295,36 @@ Remaining sharp edges to know about:
   and re-drive via `GET`/`POST /v1/notifications/deliveries[/redrive]`) and **throttled per channel**
   (`throttlePerMin`, default `NOTIFY_THROTTLE_PER_MIN`) so an alert storm can't bury an operator or
   trip your Slack's rate limit. It all runs off the decision path.
+- **Config-change audit log:** every operator mutation (a settings/retention change, a published
+  policy, a new alert channel or API key) is recorded — actor, action, time, result, with secret-ish
+  request fields redacted — at `GET /v1/audit` (admin). Answers "who changed this, when?" without
+  relying on the app logs being retained.
+- **ML scorer:** with `SCORER=ml`, decisions score against a logistic-regression model trained
+  **offline on synthetic data** (`npm run train:model` regenerates the committed weights). Inference is
+  an in-process dot-product — no model server, no added decision latency — and the score stays
+  explainable via per-feature `reasons`. Geolocation (`GEO_RESOLVER` — swap the offline resolver for a
+  GeoIP database in production) and device fingerprinting feed both this model and the rules DSL. The
+  weights are **hot-swappable** and can be loaded from a **local file** (`MODEL_PATH`), an **HTTPS URL**
+  (`MODEL_URL`), or **S3-compatible object storage** (`MODEL_S3_*` — AWS S3, MinIO, R2, Spaces; SigV4-signed,
+  no SDK), refreshed on `MODEL_REFRESH_MINUTES` — each validated against the feature vector, with the
+  bundled weights as the fallback — so you retrain and roll out without a redeploy. See the active model,
+  its source and per-feature weights at `GET /v1/config/model` (or Configure → Scoring model);
+  `verdict_model_remote_active` is `1` while a remotely-loaded model is serving.
+- **Disk management:** `GET /v1/config/storage` (admin) reports the document store's size on disk and
+  per-collection row counts; the same is sampled into `verdict_storage_bytes` and
+  `verdict_storage_rows{collection}` every retention sweep, so you can see what's growing and tune the
+  windows (§6c). Retention deletes bound growth; set `RETENTION_VACUUM=true` to reclaim the freed space
+  promptly rather than waiting on autovacuum.
+- **Server disk health:** the same endpoint (and the dashboard's Storage panel) also reports the
+  **filesystem** health of the disks data lives on — `{ path, totalBytes, freeBytes, usedBytes,
+  usedPercent }` per mount — plus a **per-service breakdown** (`components`) of what's consuming the
+  disk (the document store, and a disk-backed model file). Set `DISK_HEALTH_PATHS` (comma-separated) to
+  the volume mounts to watch; unset, it reports the container filesystem and, when `MODEL_PATH` is set,
+  the model volume. The engine can only see filesystems **mounted into its own container** — to watch
+  the Postgres volume from here, bind-mount it read-only into the engine (an example is commented in
+  `docker-compose.yml`); otherwise monitor the database container's own volume with node_exporter or
+  cAdvisor. Exported for alerting as `verdict_disk_total_bytes{path}`, `verdict_disk_free_bytes{path}`,
+  `verdict_disk_used_ratio{path}`, and `verdict_disk_component_bytes{component}`.
 - **Structured logs:** the engine emits one JSON line per operational event
   (`{ ts, level, event, … }`) to stdout/stderr with sensitive keys redacted — ship these to
   your log stack. Notably, a degraded decision (a dependency threw and the policy's

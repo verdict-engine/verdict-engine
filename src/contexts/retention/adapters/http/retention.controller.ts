@@ -1,7 +1,20 @@
 import { BadRequestException, Body, Controller, Get, Inject, Post, Put, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from "@nestjs/swagger";
 import { AdminGuard } from "@shared/adapters/admin.guard";
+import { STORE, type Store, type StoreStats } from "@shared/ports/store.port";
+import { type DiskUsage, diskHealth } from "@shared/observability/disk-health";
+import { type StorageComponent, storageComponents } from "@shared/observability/storage-breakdown";
+import { DISK } from "../../../../config/disk";
 import { RetentionConfigDto } from "../../../../docs/api-dto";
+
+/**
+ * The storage report: the logical document-store size, the health of the disks that data lives on,
+ * and a per-service breakdown of the space consumed on those disks.
+ */
+interface StorageReport extends StoreStats {
+  readonly disks: ReadonlyArray<DiskUsage>;
+  readonly components: ReadonlyArray<StorageComponent>;
+}
 import {
   RETENTION_SETTINGS,
   RetentionConfigError,
@@ -25,6 +38,7 @@ interface RetentionPatch {
 export class RetentionController {
   constructor(
     @Inject(RETENTION_SETTINGS) private readonly settings: RetentionSettings,
+    @Inject(STORE) private readonly store: Store,
     private readonly prune: PruneService,
   ) {}
 
@@ -61,5 +75,20 @@ export class RetentionController {
   })
   retention_run(): Promise<PruneReport> {
     return this.prune.sweep();
+  }
+
+  @Get("storage")
+  @ApiOperation({
+    summary: "Get storage usage",
+    description:
+      "Admin only. The document store's size and per-collection row counts, the health of the filesystems that data lives on (total / free / used, for Docker volume monitoring), and a per-service breakdown of the space consumed on disk.",
+  })
+  async storage(): Promise<StorageReport> {
+    const stats = await this.store.stats();
+    const [disks, components] = await Promise.all([
+      diskHealth(DISK.paths),
+      storageComponents(stats.totalBytes),
+    ]);
+    return { ...stats, disks, components };
   }
 }

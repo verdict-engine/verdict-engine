@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { Collection, Store, TxContext } from "../ports/store.port";
+import type { Collection, Store, StoreStats, TxContext } from "../ports/store.port";
 
 class MemoryCollection<T> implements Collection<T> {
   readonly rows = new Map<string, T>();
@@ -63,6 +63,21 @@ export class MemoryStore implements Store {
       () => undefined,
     );
     return run;
+  }
+
+  async stats(): Promise<StoreStats> {
+    let totalBytes = 0;
+    const collections: { name: string; rows: number }[] = [];
+    for (const [name, col] of this.cols) {
+      collections.push({ name, rows: col.rows.size });
+      for (const v of col.rows.values()) totalBytes += JSON.stringify(v).length; // rough in-memory estimate
+    }
+    collections.sort((a, b) => b.rows - a.rows);
+    return { totalBytes, collections };
+  }
+
+  async reclaim(): Promise<void> {
+    // Nothing to reclaim — the in-memory maps drop entries on delete/prune immediately.
   }
 
   private async runExclusive<R>(fn: (tx: TxContext) => Promise<R>): Promise<R> {

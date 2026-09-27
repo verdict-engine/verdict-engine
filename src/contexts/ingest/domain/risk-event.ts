@@ -29,6 +29,8 @@ export type RiskEventType =
 export interface EventSubject {
   readonly userId: UserId;
   readonly deviceId?: DeviceId;
+  /** Client-computed device fingerprint hash — a device-reuse and spoofing signal, independent of deviceId. */
+  readonly fingerprint?: string;
   readonly ip?: string;
   /** MSISDN (phone number) for mobile-money / telecom rails — a linkable entity and SIM-box signal. */
   readonly phone?: string;

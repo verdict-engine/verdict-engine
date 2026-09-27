@@ -16,6 +16,8 @@ const minutes = (raw: string | undefined, fallback: number): number => {
  */
 export const RETENTION = {
   sweepMinutes: minutes(process.env.RETENTION_SWEEP_MINUTES, 60),
+  /** After a sweep that deleted rows, run VACUUM to return dead space for reuse (Postgres only). */
+  vacuum: process.env.RETENTION_VACUUM === "true",
   days: {
     verdicts: days(process.env.RETENTION_VERDICTS_DAYS, 365),
     activity: days(process.env.RETENTION_ACTIVITY_DAYS, 90),

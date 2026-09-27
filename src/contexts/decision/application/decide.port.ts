@@ -17,6 +17,13 @@ export interface DecidePort {
     correlationId: string,
     idempotencyKey?: string,
   ): Promise<Result<Decision>>;
+
+  /**
+   * Fetch a previously-made decision by its idempotency key (the event id, for async submissions).
+   * Returns undefined if no decision has been committed for that key yet — the caller polls until it
+   * appears. O(1): reads the durable idempotency record, no scan.
+   */
+  lookup(idempotencyKey: string): Promise<Decision | undefined>;
 }
 
 export const DECIDE_PORT = Symbol("DecidePort");

@@ -79,4 +79,17 @@ describe("PruneService", () => {
     expect(report.pruned.idempotency).toBe(0);
     expect(await store.collection("idempotency").all()).toHaveLength(1);
   });
+
+  it("reports storage stats (row counts per collection) for disk management", async () => {
+    await seed("verdicts", "v1", "decidedAt", 399);
+    await seed("verdicts", "v2", "decidedAt", 398);
+    await seed("activity", "a1", "decidedAt", 399);
+
+    const stats = await store.stats();
+
+    expect(stats.collections.find((c) => c.name === "verdicts")?.rows).toBe(2);
+    expect(stats.collections.find((c) => c.name === "activity")?.rows).toBe(1);
+    expect(stats.totalBytes).toBeGreaterThan(0);
+    await expect(store.reclaim()).resolves.toBeUndefined(); // no-op in memory, never throws
+  });
 });

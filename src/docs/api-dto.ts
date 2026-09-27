@@ -29,10 +29,13 @@ export class SubjectDto {
   @ApiProperty({ description: "Stable identifier of the acting user/account. The only required subject field.", example: "user_9f2a" })
   userId!: string;
 
-  @ApiPropertyOptional({ description: "Device fingerprint or client id, if available.", example: "dev_ab12" })
+  @ApiPropertyOptional({ description: "Stable device/client id, if available.", example: "dev_ab12" })
   deviceId?: string;
 
-  @ApiPropertyOptional({ description: "Client IP address for geo/velocity signals.", example: "196.188.120.4" })
+  @ApiPropertyOptional({ description: "Client-computed device fingerprint hash (browser/app signals). Drives device-reuse and fingerprint↔device-mismatch signals.", example: "fp_9c1e77a2b4" })
+  fingerprint?: string;
+
+  @ApiPropertyOptional({ description: "Client IP address for geolocation, impossible-travel and velocity signals.", example: "196.188.120.4" })
   ip?: string;
 
   @ApiPropertyOptional({ description: "MSISDN for mobile-money / telecom rails. A linkable graph entity and SIM-box signal.", example: "+251911223344" })
@@ -85,6 +88,11 @@ export class DecisionEventDto {
     example: { orderCount24h: 3, isNewDevice: true, promoCode: "WELCOME" },
   })
   attributes?: Record<string, string | number | boolean>;
+}
+
+export class BatchDecisionDto {
+  @ApiProperty({ type: [DecisionEventDto], description: "1–100 events to score. Each is scored independently; the response preserves order." })
+  events!: DecisionEventDto[];
 }
 
 export class DecisionReasonDto {

@@ -67,6 +67,12 @@ class FaultStore implements Store {
     if (this.failTransaction) return Promise.reject(new Error("database unavailable"));
     return this.inner.transaction(fn);
   }
+  stats() {
+    return this.inner.stats();
+  }
+  reclaim() {
+    return this.inner.reclaim();
+  }
 }
 
 interface Harness {
@@ -104,8 +110,8 @@ function makeHarness(overrides: { store?: Store; bus?: MockProxy<EventBus> } = {
   policies.loadFor.mockResolvedValue(POLICY);
   features.snapshot.mockResolvedValue({
     velocity: { attemptsLast2m: 0, attemptsLast24h: 0, amountLast1h: 0 },
-    device: { firstSeen: false, usersOnDevice: 0 },
-    geo: { ipSimMismatch: false },
+    device: { firstSeen: false, usersOnDevice: 0, fingerprintFirstSeen: false, usersOnFingerprint: 0, fingerprintDeviceMismatch: false },
+    geo: { ipSimMismatch: false, impossibleTravel: false, countryChanged: false },
   });
   graph.featuresFor.mockResolvedValue({ usersOnDevice: 0, usersOnIp: 0, usersOnPhone: 0, devicesOnUser: 0, ringSize: 1 });
   anomaly.featuresFor.mockResolvedValue({ amountZScore: 0, amountMean: 0, samples: 0 });

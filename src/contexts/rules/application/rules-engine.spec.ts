@@ -35,8 +35,8 @@ const event = (): RiskEvent => ({
 
 const features = (attemptsLast2m: number): FeatureSnapshot => ({
   velocity: { attemptsLast2m, attemptsLast24h: 0, amountLast1h: 0 },
-  device: { firstSeen: false, usersOnDevice: 0 },
-  geo: { ipSimMismatch: false },
+  device: { firstSeen: false, usersOnDevice: 0, fingerprintFirstSeen: false, usersOnFingerprint: 0, fingerprintDeviceMismatch: false },
+  geo: { ipSimMismatch: false, impossibleTravel: false, countryChanged: false },
 });
 
 describe("RulesEngineService", () => {
