@@ -31,6 +31,15 @@ export class MlScorer implements ScorerPort, OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     await this.reload();
+    // Loud warning when SCORER=ml is serving the bundled weights: they are a DEMONSTRATION model
+    // trained on synthetic data, not a validated fraud model. (Also fires if a configured source failed
+    // to load and we fell back to the bundled weights.)
+    if (this.model === ML_WEIGHTS) {
+      logEvent("warn", "model.synthetic_demo", {
+        message:
+          "SCORER=ml is serving the bundled DEMONSTRATION model trained on synthetic data — not a validated fraud model. Supply real weights via MODEL_PATH / MODEL_URL / MODEL_S3_* before production use.",
+      });
+    }
     if (MODEL.refreshMinutes > 0 && process.env.VITEST !== "true" && process.env.NODE_ENV !== "test") {
       this.timer = setInterval(() => void this.reload(), MODEL.refreshMinutes * 60_000);
       this.timer.unref?.();

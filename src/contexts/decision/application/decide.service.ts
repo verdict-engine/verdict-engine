@@ -7,6 +7,7 @@ import { ALERT_SETTINGS, type AlertSettings } from "@shared/adapters/alert-setti
 import { ALERT_ANOMALY, type AnomalyAlertPayload } from "@shared/domain/alerts";
 import { causeMessage, logEvent } from "@shared/observability/log";
 import { decisionDuration, decisionsTotal, degradedTotal } from "@shared/observability/metrics";
+import { tracer } from "@shared/observability/trace";
 import { type Result, ok } from "@shared/domain/result";
 import type { VerdictId } from "@shared/domain/ids";
 import type { RiskEvent } from "@contexts/ingest/application/ingest.port";
@@ -84,13 +85,19 @@ export class DecideService implements DecidePort {
       return ok(existing);
     }
 
-    const policy = await this.policies.loadFor(event.type);
-    const outcome = await this.evaluate(event, policy);
-    const decision = await this.commit(outcome, event, correlationId, key);
-    decisionDuration.observe(Date.now() - started);
-    // `decision` is the winner's — on a concurrent duplicate, commit returns the already-committed one.
-    decisionsTotal.inc({ verdict: decision.verdict, cached: decision === outcome.decision ? "false" : "true" });
-    return ok(decision);
+    return tracer.withSpan("decision.decide", async (span) => {
+      span.setAttribute("event.type", event.type);
+      const policy = await this.policies.loadFor(event.type);
+      const outcome = await tracer.withSpan("decision.evaluate", () => this.evaluate(event, policy));
+      const decision = await tracer.withSpan("decision.commit", () => this.commit(outcome, event, correlationId, key));
+      decisionDuration.observe(Date.now() - started);
+      // `decision` is the winner's — on a concurrent duplicate, commit returns the already-committed one.
+      const cached = decision === outcome.decision ? "false" : "true";
+      decisionsTotal.inc({ verdict: decision.verdict, cached });
+      span.setAttribute("verdict", decision.verdict);
+      span.setAttribute("score", decision.score);
+      return ok(decision);
+    });
   }
 
   /** O(1) read of a committed decision by idempotency key — used to poll an async submission's result. */
@@ -108,14 +115,14 @@ export class DecideService implements DecidePort {
         return { decision: this.build(event, policy, "allow", [{ tag: "list.allow", points: 0 }], -1) };
       }
 
-      const base = await this.features.snapshot(event);
+      const base = await tracer.withSpan("feature-store.snapshot", () => this.features.snapshot(event));
       const snapshot = {
         ...base,
-        graph: await this.graph.featuresFor(event),
-        anomaly: await this.anomaly.featuresFor(event),
+        graph: await tracer.withSpan("graph.features", () => this.graph.featuresFor(event)),
+        anomaly: await tracer.withSpan("anomaly.features", () => this.anomaly.featuresFor(event)),
       };
-      const hits = await this.rules.evaluate(event, snapshot);
-      const score = await this.scorer.score(hits, snapshot);
+      const hits = await tracer.withSpan("rules.evaluate", () => this.rules.evaluate(event, snapshot));
+      const score = await tracer.withSpan("scorer.score", () => this.scorer.score(hits, snapshot));
       const band = resolveVerdict(policy, score);
 
       let verdict: Verdict = band.verdict;

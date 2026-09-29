@@ -1,29 +1,72 @@
 import { Injectable } from "@nestjs/common";
-import type { Collection, Store, StoreStats, TxContext } from "../ports/store.port";
+import type { Collection, CollectionQuery, Store, StoreStats, TxContext } from "../ports/store.port";
+import { stringAt } from "./typed-tables";
+import { DEFAULT_ORG, scopeFor } from "./tenant-context";
+
+interface Row<T> {
+  readonly org: string;
+  readonly value: T;
+}
 
 class MemoryCollection<T> implements Collection<T> {
-  readonly rows = new Map<string, T>();
+  readonly rows = new Map<string, Row<T>>();
+
+  constructor(private readonly name: string) {}
+
+  /** Rows visible to the caller: all of them for a background/global read, else just the ambient org's. */
+  private visible(): Array<[string, Row<T>]> {
+    const org = scopeFor(this.name);
+    return [...this.rows].filter(([, r]) => org === undefined || r.org === org);
+  }
+
   async get(id: string): Promise<T | null> {
-    return this.rows.get(id) ?? null;
+    const org = scopeFor(this.name);
+    const row = this.rows.get(id);
+    if (!row || (org !== undefined && row.org !== org)) return null;
+    return row.value;
   }
   async put(id: string, value: T): Promise<void> {
-    this.rows.set(id, value);
+    this.rows.set(id, { org: scopeFor(this.name) ?? this.rows.get(id)?.org ?? DEFAULT_ORG, value });
   }
   async putIfAbsent(id: string, value: T): Promise<boolean> {
-    if (this.rows.has(id)) return false;
-    this.rows.set(id, value);
+    const org = scopeFor(this.name);
+    const existing = this.rows.get(id);
+    if (existing && (org === undefined || existing.org === org)) return false;
+    this.rows.set(id, { org: org ?? DEFAULT_ORG, value });
     return true;
   }
   async delete(id: string): Promise<void> {
-    this.rows.delete(id);
+    const org = scopeFor(this.name);
+    const row = this.rows.get(id);
+    if (row && (org === undefined || row.org === org)) this.rows.delete(id);
   }
   async all(): Promise<T[]> {
-    return [...this.rows.values()];
+    return this.visible().map(([, r]) => r.value);
+  }
+  async query(spec: CollectionQuery): Promise<T[]> {
+    let rows = this.visible().map(([, r]) => r.value);
+    const filters = Object.entries(spec.where ?? {});
+    if (filters.length) rows = rows.filter((r) => filters.every(([path, v]) => stringAt(r, path) === v));
+    if (spec.orderByDesc) {
+      const key = spec.orderByDesc;
+      rows.sort((a, b) => stringAt(b, key).localeCompare(stringAt(a, key)));
+    }
+    return spec.limit !== undefined ? rows.slice(0, spec.limit) : rows;
+  }
+  async deleteWhere(path: string, value: string): Promise<number> {
+    let removed = 0;
+    for (const [id, r] of this.visible()) {
+      if (stringAt(r.value, path) === value) {
+        this.rows.delete(id);
+        removed++;
+      }
+    }
+    return removed;
   }
   async prune(tsField: string, cutoff: string): Promise<number> {
     let removed = 0;
-    for (const [id, value] of this.rows) {
-      const ts = (value as Record<string, unknown>)[tsField];
+    for (const [id, r] of this.visible()) {
+      const ts = (r.value as Record<string, unknown>)[tsField];
       if (typeof ts === "string" && ts < cutoff) {
         this.rows.delete(id);
         removed++;
@@ -42,7 +85,7 @@ export class MemoryStore implements Store {
   collection<T>(name: string): Collection<T> {
     let col = this.cols.get(name);
     if (!col) {
-      col = new MemoryCollection<unknown>();
+      col = new MemoryCollection<unknown>(name);
       this.cols.set(name, col);
     }
     return col as Collection<T>;

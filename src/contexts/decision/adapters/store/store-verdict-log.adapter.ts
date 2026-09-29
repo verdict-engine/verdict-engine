@@ -15,8 +15,6 @@ export class StoreVerdictLog implements VerdictLogPort {
   }
 
   async recent(limit: number): Promise<Decision[]> {
-    return (await this.store.collection<Decision>(COLLECTION).all())
-      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
-      .slice(0, limit);
+    return this.store.collection<Decision>(COLLECTION).query({ orderByDesc: "decidedAt", limit });
   }
 }

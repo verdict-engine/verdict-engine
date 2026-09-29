@@ -10,6 +10,8 @@ export interface ApiKey {
   readonly hash: string;
   readonly prefix: string;
   readonly createdBy: string;
+  /** The tenant this key belongs to — sets the data scope of requests it authenticates. Legacy → default org. */
+  readonly orgId?: string;
   readonly createdAt: string;
   readonly revokedAt?: string;
   /** Allowed scopes. Absent/empty = all scopes (keys created before scoping existed). */

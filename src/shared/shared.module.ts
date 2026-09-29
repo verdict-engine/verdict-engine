@@ -11,6 +11,7 @@ import { RATE_LIMIT_SETTINGS, RateLimitSettings } from "./adapters/rate-limit-se
 import { ALERT_SETTINGS, AlertSettings } from "./adapters/alert-settings";
 import { AUDIT_LOG, AuditLog } from "./adapters/audit-log";
 import { AuditInterceptor } from "./adapters/audit.interceptor";
+import { TenantInterceptor } from "./adapters/tenant.interceptor";
 import { REDIS, createRedis, redisEnabled } from "./adapters/redis.provider";
 import { AuthGuard } from "./adapters/auth.guard";
 import { AdminGuard } from "./adapters/admin.guard";
@@ -49,6 +50,8 @@ function createStore(): Store {
     { provide: RATE_LIMIT_SETTINGS, useClass: RateLimitSettings },
     { provide: ALERT_SETTINGS, useClass: AlertSettings },
     { provide: AUDIT_LOG, useClass: AuditLog },
+    // Tenant scoping must wrap everything else (including the audit write), so it is registered first.
+    { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
     AuthGuard,
     AdminGuard,

@@ -159,3 +159,4 @@ export const diskTotalBytes = registry.gauge("verdict_disk_total_bytes", "Total 
 export const diskFreeBytes = registry.gauge("verdict_disk_free_bytes", "Space available to the engine on a monitored filesystem, by path (sampled each retention sweep)");
 export const diskUsedRatio = registry.gauge("verdict_disk_used_ratio", "Used fraction (0..1) of a monitored filesystem, by path (sampled each retention sweep)");
 export const diskComponentBytes = registry.gauge("verdict_disk_component_bytes", "Disk space consumed by each service/component, by component (sampled each retention sweep)");
+export const traceSpansExportedTotal = registry.counter("verdict_trace_spans_exported_total", "Spans shipped to the OTLP collector, by result (ok/error)");

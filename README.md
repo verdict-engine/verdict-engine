@@ -22,7 +22,8 @@ The main features of Verdict `v0.7.0`:
 * **Three scorers behind one seam** — transparent hand weights (default), an **adaptive** model that learns each signal's fraud rate from your own labels, and a **trained ML** logistic-regression scorer over the full feature vector. Switch with one env var; hot-swap the ML weights from a local file, an HTTPS URL, or S3-compatible storage — no redeploy.
 * **Rich signals, computed at write time** so the request-path read stays sub-millisecond — velocity, **device fingerprinting**, **IP geolocation & impossible-travel**, an **entity graph** (fraud rings), and per-user **anomaly** z-scores.
 * **The human loop** — a `review` verdict opens a **case**; analysts assign and resolve it; resolutions and PSP chargebacks become **labels** that sharpen the model, with **backtesting** before you publish a change.
-* **Operable** — a transactional **outbox**, signed **webhooks**, durable & throttled **Slack / Telegram / webhook notifications**, **retention** pruning, **server-disk health**, a config-change **audit log**, **Prometheus** metrics, operator authentication and scoped **API keys**.
+* **Operable** — a transactional **outbox**, signed **webhooks**, durable & throttled **Slack / Telegram / webhook notifications**, **retention** pruning, **server-disk health**, a config-change **audit log**, **Prometheus** metrics, **distributed tracing** (OpenTelemetry/OTLP, opt-in), operator authentication and scoped **API keys**.
+* **Multi-tenant** — every user, API key, the decision data it produces, **and its decisioning config (policies, rules, lists)** belong to an **org**, derived server-side from the key/token and isolated centrally in the store; one tenant can't see another's data or affect its rules. Provision tenants with `POST /v1/orgs`. Single-tenant deployments run in the `default` org, unchanged.
 * **Clients** — an operator **dashboard**, a full **docs site**, official **TypeScript and Flutter SDKs**, and an **MCP server** so an LLM agent can drive the engine as tools.
 
 Next up (`v0.8` → `1.0`): Python & React Native SDKs, typed high-volume tables, readiness probes and CI on every surface, and auth self-service — see the [Roadmap](#upcoming-roadmap).
@@ -52,15 +53,20 @@ openssl rand -hex 32
 
 ### Run with Docker
 
+The Compose stack builds the operator dashboard from a **sibling checkout**, so clone both repos side by side first:
+
 ```bash
-git clone https://github.com/your-org/verdict-engine.git
+git clone https://github.com/verdict-engine/verdict-engine.git
+git clone https://github.com/verdict-engine/verdict-dashboard.git   # built by compose from ../verdict-dashboard
 cd verdict-engine
 AUTH_SECRET=$(openssl rand -hex 32) docker compose up --build
 ```
 
+> Want the engine only? It has no build-time dependency on the dashboard — run `docker compose up --build db redis engine` to skip it.
+
 This starts:
 
-* `engine` — the decision API at `http://localhost:4000` (`/health`, `/metrics`, interactive docs at `/docs`)
+* `engine` — the decision API at `http://localhost:4000` (`/health`, `/readyz`, `/metrics`, interactive docs at `/docs`)
 * `dashboard` — the operator UI at `http://localhost:3000` (review queue, configuration, analytics)
 * `db` — PostgreSQL 16 (durable) · `redis` — shared idempotency, velocity, and rate limits
 
@@ -125,11 +131,27 @@ The default scorer is transparent and deterministic: `rule hits → hand-authore
 
 Set `SCORER=learned` for the **adaptive** scorer — deliberately small and auditable rather than a black box. A decision records the tags that fired; a case resolution or chargeback produces a `fraud`/`legit` label; each tag gets a Laplace-smoothed fraud rate scaled to points, trusted only after enough labels (until then the hand weight stands). Inspect it any time at `GET /v1/model`.
 
-Set `SCORER=ml` for a **trained logistic-regression model** over the full feature vector, returning a calibrated probability mapped to 0–100 with the per-feature terms as the `reasons`. Inference is a single dot-product plus a sigmoid (no I/O, no model server), so it does not slow the decision path. It is trained **offline on a synthetic dataset** (`npm run train:model`); training and serving share one feature extractor so they can never drift.
+Set `SCORER=ml` for a **trained logistic-regression model** over the full feature vector, returning a probability mapped to 0–100 with the per-feature terms as the `reasons`. Inference is a single dot-product plus a sigmoid (no I/O, no model server), so it does not slow the decision path. Training and serving share one feature extractor so they can never drift.
+
+> ⚠️ **The bundled model is a demonstration model, not fraud intelligence.** It is trained on a **synthetic dataset** (`npm run train:model`), so its metrics measure how well it recovers that synthetic generator — **not** real fraud-detection performance, calibration, or fairness. It is a reference of the scoring *mechanism*. For production, train on real labels (the feedback loop collects them) or supply your own model, and see [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md). `GET /v1/config/model` reports `provenance: "synthetic-demo"` while the bundled weights are serving, and the engine logs a warning at boot when `SCORER=ml` uses them.
 
 The ML weights are **hot-swappable** — bundled in the image by default (works offline), or loaded and refreshed from a local file (`MODEL_PATH`), an HTTPS URL (`MODEL_URL`), or S3-compatible storage (`MODEL_S3_*`; AWS S3, MinIO, R2, Spaces — SigV4-signed, no AWS SDK). Every loaded model is validated against the feature vector, with the bundled weights as a safe fallback. Inspect the active model at `GET /v1/config/model`.
 
-**Scaling the ML pipeline.** Serving and training scale independently. Serving is a fixed-cost dot-product held in the image, so it adds microseconds and scales horizontally with engine replicas. Training is fully decoupled: the engine only consumes a validated JSON weights file, so you can train on real labels at any scale in an external job (Python, a GBM, a feature store) and publish the weights to `MODEL_S3_*`. The label loop that sharpens the adaptive scorer is also the ML model's training set.
+**Train on your real labels (closing the loop).** The labels you already collect — analyst case
+resolutions and PSP chargebacks — are the training set. Each labelled decision's feature snapshot is
+kept in the replay log, so you can export a real dataset and retrain on it:
+
+```bash
+DATABASE_URL=postgres://…  npm run export:training-data  ml.json   # labels ⋈ feature snapshots → rows
+npm run train:model -- --data ml.json                              # train on real labels, not synthetic
+```
+
+Export and training use the **same feature extractor** the engine serves with, so training can't drift
+from serving. The trainer reports **ROC-AUC, PR-AUC, accuracy, Brier score and a calibration table** (so
+a real model can be judged at its operating point, not just on ROC-AUC), and warns when a real model's
+AUC is too low to trust. Publish the resulting weights via `MODEL_PATH` / `MODEL_URL` / `MODEL_S3_*`.
+
+**Scaling the ML pipeline.** Serving and training scale independently. Serving is a fixed-cost dot-product held in the image, so it adds microseconds and scales horizontally with engine replicas. Training is fully decoupled: the engine only consumes a validated JSON weights file, so you can also train at any scale in an external job (Python, a GBM, a feature store) and publish the weights to `MODEL_S3_*`.
 
 ### Signals: geolocation, device, graph & anomaly
 
@@ -173,7 +195,7 @@ For local development and contributing (this path may hit the usual Node toolcha
 2. Clone and install:
 
 ```bash
-git clone https://github.com/your-org/verdict-engine.git
+git clone https://github.com/verdict-engine/verdict-engine.git
 cd verdict-engine
 npm install
 ```
@@ -206,7 +228,8 @@ test/                    end-to-end and hardening tests
 | `npm run lint` | Run style and architecture boundary checks |
 | `npm run test` | Run the Vitest suite |
 | `npm run test:e2e` | Run end-to-end tests under `test/` |
-| `npm run train:model` | Retrain the ML scorer on synthetic data and rewrite the weights |
+| `npm run export:training-data` | Export a labelled dataset (real labels ⋈ feature snapshots) from Postgres |
+| `npm run train:model [-- --data f.json]` | Retrain the ML scorer — on your exported labels, or synthetic by default — and rewrite the weights |
 | `npm run build` | Compile the production build |
 | `npm run audit:ci` | Check production dependencies for high-severity issues |
 
@@ -218,9 +241,9 @@ Delivered through `v0.7.0`: the decision API (sync/batch/async), the rules DSL, 
 
 Planned (subject to change while in beta):
 
-* `v0.8` — Python & React Native SDKs; a readiness probe and CI on the dashboard & docs; auth self-service (password reset, MFA, account lockout).
-* `v0.9` — typed high-volume tables (a normalized schema) for scale; case reassignment and re-open.
-* `v1.0` — general availability: stability guarantees, hardened defaults, and optional multi-tenancy.
+* `v0.8` — Python & React Native SDKs; a readiness probe, **distributed tracing** (OpenTelemetry/OTLP), and CI on the dashboard & docs; auth self-service (password reset, MFA, account lockout). The high-volume decision logs (verdicts, activity, replay) now sit in typed, indexed tables with query pushdown.
+* `v0.9` — extend the typed schema to the remaining collections; per-org runtime settings; case reassignment and re-open.
+* `v1.0` — general availability: stability guarantees, hardened defaults. **Multi-tenancy** has landed — org-scoped store (API-key→org) with each tenant's decision data, keys, operators, **and decisioning config (policies, rules, lists) private**.
 
 ## Contributing
 

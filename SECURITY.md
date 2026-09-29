@@ -17,10 +17,9 @@ While in beta, only the **latest `0.x` release** receives security fixes. Pin a 
 
 **Please do not open a public issue, PR, or discussion for a security vulnerability.**
 
-Report it privately through either:
+Report it privately through **GitHub private vulnerability reporting** — the repository's **Security → Report a vulnerability** tab. This is the primary channel and needs no email address; enable it under **Settings → Code security and analysis → Private vulnerability reporting**.
 
-- **GitHub private vulnerability reporting** — the repository's **Security → Report a vulnerability** tab (preferred), or
-- **Email** — `security@your-domain.example` *(replace with the project's real security contact before publishing)*.
+> Maintainers: if you also want an email channel, add the address here. Until one is listed, use GitHub private reporting.
 
 Please include:
 

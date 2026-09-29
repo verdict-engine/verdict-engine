@@ -75,6 +75,12 @@ insecure process.
 | `NOTIFY_THROTTLE_PER_MIN` | engine | — | `60` | Default cap on alerts delivered to a single channel per minute (excess is dropped, not queued). `0` = unlimited. A channel can override it at registration. |
 | `RETENTION_VACUUM` | engine | — | `false` | When `true`, run a (non-locking) `VACUUM` after a prune sweep that deleted rows, returning dead space for reuse promptly. Autovacuum handles this otherwise; enable if you prune large volumes and want space reclaimed sooner. |
 | `DISK_HEALTH_PATHS` | engine | — | container fs + model volume | Comma-separated filesystem paths whose disk health (`total`/`free`/`used`) is reported at `GET /v1/config/storage` and in the `verdict_disk_*` metrics. Only filesystems mounted into the engine's own container are visible; bind-mount a sibling volume (read-only) to watch it. See §9. |
+| `METRICS_TOKEN` | engine | — | — | When set, `GET /metrics` requires `Authorization: Bearer <token>` (or `X-Metrics-Token`). Unset = public (keep the port private). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | engine | — | — | Base OTLP/HTTP endpoint of an OpenTelemetry collector, e.g. `http://collector:4318`. Setting it **enables distributed tracing**; spans POST to `${endpoint}/v1/traces`. Unset = tracing off (no overhead). See §9. |
+| `OTEL_SERVICE_NAME` | engine | — | `verdict-engine` | `service.name` reported on exported spans. |
+| `TRACE_SAMPLE_RATIO` | engine | — | `1` | Head sampling ratio in `[0,1]` for root traces (a sampled parent is always followed). Lower it under high load. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | engine | — | — | Extra headers for the collector (`k1=v1,k2=v2`) — e.g. auth for a hosted OTLP endpoint. |
+| `TRACING_ENABLED` | engine | — | auto | `true`/`false` to force tracing on/off regardless of the endpoint (default: on when an endpoint is set). |
 | `VERDICT_API_URL` | dashboard | yes | `http://engine:4000` | Where the dashboard reaches the engine (server-side; no CORS). |
 
 **Production boot fails** unless `AUTH_SECRET` is a real secret and `DATABASE_URL` is a
@@ -276,14 +282,32 @@ Remaining sharp edges to know about:
 
 ## 9. Observability & operations
 
-- **Health:** `GET /health` (public) → `{ status, name, version }` for liveness/readiness
-  probes.
-- **Metrics:** `GET /metrics` (public, Prometheus text format — keep it on the private port).
+- **Liveness:** `GET /health` (public) → `{ status, name, version }` — the process is up. Use it for
+  the liveness probe only.
+- **Readiness:** `GET /readyz` (public) verifies the datastore is reachable (the query also proves the
+  schema/migrations are in place) and, when `REDIS_URL` is set, that Redis answers. It returns `200`
+  `{ status: "ready", checks }` or `503` `{ status: "not_ready", checks }`. Point your orchestrator's /
+  load balancer's **readiness** probe here so traffic is held until the instance can serve durable
+  decisions.
+- **Metrics:** `GET /metrics` (Prometheus text format), public by default — bind it to a private port /
+  network, since it discloses traffic and decision volumes. To expose it beyond a private network, set
+  `METRICS_TOKEN`: the endpoint then requires `Authorization: Bearer <token>` (or the `X-Metrics-Token`
+  header), so a scraper can reach it while the public cannot.
   Exposes decision latency (`verdict_decision_duration_ms`), decisions by verdict
   (`verdict_decisions_total`), degraded decisions, `429`s (`verdict_rate_limited_total`), and
   outbox/webhook delivery counters + pending-depth gauges (`verdict_outbox_*`, `verdict_webhook_*`).
   Alert on a rising `verdict_degraded_total`, non-zero `*_dead_lettered_total`, or a growing
   `*_pending` gauge.
+- **Distributed tracing:** set `OTEL_EXPORTER_OTLP_ENDPOINT` to an OpenTelemetry collector to emit
+  W3C-trace-context spans over OTLP/HTTP (JSON). Each request opens a server span; the decision path
+  nests child spans under it (`decision.decide` → `feature-store.snapshot`, `graph.features`,
+  `anomaly.features`, `rules.evaluate`, `scorer.score`, `decision.commit`) — so a slow decision shows
+  you *which* stage is slow. An incoming `traceparent` header is honoured (the engine's trace links to
+  the caller's), and every response carries a `traceparent` so a client can correlate a request with
+  its trace. Head-sample with `TRACE_SAMPLE_RATIO` under load; `verdict_trace_spans_exported_total`
+  reports export success/failure. Tracing is off (zero overhead) until an endpoint is set, and needs no
+  `@opentelemetry/*` agent — any OTLP/HTTP collector works (OpenTelemetry Collector, Jaeger, Tempo, or a
+  hosted endpoint via `OTEL_EXPORTER_OTLP_HEADERS`). Spans batch and flush every ~5s.
 - **Dead-letters:** drained events that exhausted their retries land in the `outbox_dead` /
   `webhook-deliveries-dead` collections; re-drive webhooks via `POST /v1/webhooks/deliveries/redrive`.
 - **Alerting:** add a Slack incoming-webhook, a Telegram bot (`url` =

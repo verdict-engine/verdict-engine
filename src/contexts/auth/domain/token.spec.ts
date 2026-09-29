@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildKeyring, deriveKid, signToken, verifyToken, type TokenConfig } from "./token";
 
-const principal = { userId: "usr_1", email: "a@b.com", role: "analyst" };
+const principal = { userId: "usr_1", email: "a@b.com", role: "analyst", orgId: "org_acme" };
 const NOW = 1_800_000_000_000;
 
 const config = (secret = "primary-secret-value", previous: string[] = []): TokenConfig => ({
@@ -15,7 +15,7 @@ describe("token", () => {
   it("round-trips a signed token with its claims", () => {
     const cfg = config();
     const claims = verifyToken(cfg, signToken(cfg, principal, "jti_1", NOW), NOW);
-    expect(claims).toMatchObject({ sub: "usr_1", email: "a@b.com", role: "analyst", jti: "jti_1", iss: "verdict-engine", aud: "verdict-operators" });
+    expect(claims).toMatchObject({ sub: "usr_1", email: "a@b.com", role: "analyst", org: "org_acme", jti: "jti_1", iss: "verdict-engine", aud: "verdict-operators" });
   });
 
   it("rejects a tampered or garbage token", () => {

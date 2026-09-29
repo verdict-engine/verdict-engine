@@ -7,6 +7,8 @@ import { ConfigError, loadConfig } from "./config/env";
 import { APP_VERSION } from "./version";
 import { STORE } from "./shared/ports/store.port";
 import { SWAGGER_LOGIN_JS } from "./docs/swagger-login";
+import { tracer } from "./shared/observability/trace";
+import { tracingMiddleware } from "./shared/observability/trace-http";
 
 /** Interactive API docs served by the engine itself at /docs (same-origin, so "Try it out" works). */
 function setupDocs(app: INestApplication): void {
@@ -67,11 +69,16 @@ async function bootstrap(): Promise<void> {
   // Trust only the configured proxy hops, so req.ip (used for per-IP rate limits) is the real
   // client and cannot be spoofed via X-Forwarded-For. Default false = ignore XFF entirely.
   app.getHttpAdapter().getInstance().set("trust proxy", config.trustProxy);
+  // Trace each request: opens a server span and makes it the active context for the whole handler.
+  // Registered before routes so it wraps the full request; a no-op passthrough when tracing is off.
+  app.use(tracingMiddleware);
+  tracer.start();
   await runStartupMigrations(app);
   setupDocs(app);
   await app.listen(config.port);
   const shared = config.redisUrl ? "redis (shared)" : "in-memory (single replica)";
-  console.log(`verdict-engine listening on :${config.port} · persistence: ${config.persistence} · velocity/idempotency/limits: ${shared}`);
+  const tracing = tracer.enabled ? "on (OTLP)" : "off";
+  console.log(`verdict-engine listening on :${config.port} · persistence: ${config.persistence} · velocity/idempotency/limits: ${shared} · tracing: ${tracing}`);
 }
 
 void bootstrap();

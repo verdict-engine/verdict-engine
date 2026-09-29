@@ -1,3 +1,18 @@
+/**
+ * A pushed-down read over a collection: equality filters, one descending sort, and a row cap.
+ * On Postgres these run as an indexed query; the in-memory store scans its own map. Keys and the
+ * sort field are dotted paths into the record (e.g. `request.subject.userId`), which the typed-table
+ * store maps to real columns. Lets hot read paths bound their work instead of loading a whole
+ * collection into memory to sort and slice it.
+ */
+export interface CollectionQuery {
+  /** Equality filters, ANDed together: dotted-path field → required string value. */
+  readonly where?: Readonly<Record<string, string>>;
+  /** Dotted path of the field to order by, descending (typically a timestamp). */
+  readonly orderByDesc?: string;
+  readonly limit?: number;
+}
+
 export interface Collection<T> {
   get(id: string): Promise<T | null>;
   put(id: string, value: T): Promise<void>;
@@ -6,6 +21,12 @@ export interface Collection<T> {
   putIfAbsent(id: string, value: T): Promise<boolean>;
   delete(id: string): Promise<void>;
   all(): Promise<T[]>;
+  /** Indexed, filtered, limited read — the query pushdown that keeps hot paths (recent decisions,
+   * replay samples for a type) from loading and sorting an entire collection in memory. */
+  query(spec: CollectionQuery): Promise<T[]>;
+  /** Delete every record whose dotted-path field equals `value`; returns the count removed. Backs
+   * subject data-erasure without scanning the collection into memory first. */
+  deleteWhere(path: string, value: string): Promise<number>;
   /** Delete every record whose ISO-8601 timestamp at `tsField` is strictly older than `cutoff`, and
    * return how many were removed. Powers the retention prune job that bounds the append-only
    * collections; timestamps are compared lexically, which is chronological for UTC toISOString(). */

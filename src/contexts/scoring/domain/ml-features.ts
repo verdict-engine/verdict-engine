@@ -32,8 +32,14 @@ export function ruleScore(hits: RuleHit[]): number {
   return hits.reduce((s, h) => s + h.weight, 0);
 }
 
-/** Extract the fixed-order, scaled feature vector from a snapshot + rule hits. Pure and total. */
-export function mlFeatureVector(hits: RuleHit[], f: FeatureSnapshot): number[] {
+/**
+ * The fixed-order, scaled feature vector from a pre-summed rule score + a feature snapshot. This is
+ * the single extractor shared by serving ({@link mlFeatureVector}) and offline training/export, so a
+ * model trained on exported history uses exactly the same features it will be served on — no drift.
+ * The rule score is passed as a number so a replay sample (which stores the score, not the raw hits)
+ * can be turned into a training row.
+ */
+export function mlVector(ruleScoreValue: number, f: FeatureSnapshot): number[] {
   return [
     clamp01(f.velocity.attemptsLast2m / 10),
     clamp01(f.velocity.attemptsLast24h / 50),
@@ -48,8 +54,13 @@ export function mlFeatureVector(hits: RuleHit[], f: FeatureSnapshot): number[] {
     clamp01((f.graph?.ringSize ?? 0) / 10),
     clamp01((f.graph?.usersOnIp ?? 0) / 10),
     clamp01((f.anomaly?.amountZScore ?? 0) / 5),
-    clamp01(ruleScore(hits) / 100),
+    clamp01(ruleScoreValue / 100),
   ];
+}
+
+/** Extract the fixed-order, scaled feature vector from a snapshot + rule hits. Pure and total. */
+export function mlFeatureVector(hits: RuleHit[], f: FeatureSnapshot): number[] {
+  return mlVector(ruleScore(hits), f);
 }
 
 export const sigmoid = (z: number): number => 1 / (1 + Math.exp(-z));

@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { CLOCK, type Clock } from "@shared/ports/clock.port";
 import { ID_GENERATOR, type IdGenerator } from "@shared/ports/id-generator.port";
 import { DomainError } from "@shared/domain/result";
+import { DEFAULT_ORG, currentOrg } from "@shared/adapters/tenant-context";
 import type { ApiKeyPrincipal, ApiKeyVerifier } from "@shared/ports/api-key-verifier.port";
 import { API_KEY_SCOPES, effectiveScopes, generateKey, hashKey, isExpired, summarize, type ApiKey, type ApiKeySummary } from "../domain/api-key";
 import type { ApiKeysPort, CreateKeyOptions, CreatedKey } from "./api-keys.port";
@@ -30,6 +31,7 @@ export class ApiKeysService implements ApiKeysPort, ApiKeyVerifier {
       hash,
       prefix,
       createdBy,
+      orgId: currentOrg() ?? DEFAULT_ORG,
       createdAt: this.clock.isoNow(),
       scopes,
       expiresAt,
@@ -52,7 +54,7 @@ export class ApiKeysService implements ApiKeysPort, ApiKeyVerifier {
   async verify(key: string): Promise<ApiKeyPrincipal | null> {
     const found = await this.keys.findByHash(hashKey(key));
     if (!found || found.revokedAt || isExpired(found, this.clock.isoNow())) return null;
-    return { id: found.id, name: found.name, scopes: effectiveScopes(found) };
+    return { id: found.id, name: found.name, scopes: effectiveScopes(found), orgId: found.orgId ?? DEFAULT_ORG };
   }
 
   private validateScopes(scopes?: string[]): string[] | undefined {

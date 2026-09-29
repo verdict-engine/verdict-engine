@@ -25,6 +25,8 @@ export interface TokenClaims {
   readonly sub: string;
   readonly email: string;
   readonly role: string;
+  /** The operator's tenant. Optional so tokens issued before multi-tenancy still verify. */
+  readonly org?: string;
   readonly iss: string;
   readonly aud: string;
   /** Unique token id, for revocation. */
@@ -62,6 +64,7 @@ export function signToken(cfg: TokenConfig, principal: Principal, jti: string, n
     sub: principal.userId,
     email: principal.email,
     role: principal.role,
+    org: principal.orgId,
     iss: cfg.iss,
     aud: cfg.aud,
     jti,

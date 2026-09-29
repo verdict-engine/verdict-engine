@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "test:e2e": "vitest run test",
     "train:model": "npx --yes tsx scripts/train-ml-model.ts",
+    "export:training-data": "npx --yes tsx scripts/export-training-data.ts",
     "audit:ci": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {

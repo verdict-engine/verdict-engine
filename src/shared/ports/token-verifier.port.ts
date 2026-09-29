@@ -2,6 +2,8 @@ export interface Principal {
   readonly userId: string;
   readonly email: string;
   readonly role: string;
+  /** The tenant this operator belongs to. Absent in legacy tokens → treated as the default org. */
+  readonly orgId: string;
 }
 
 /**

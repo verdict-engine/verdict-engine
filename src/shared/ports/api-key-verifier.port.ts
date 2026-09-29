@@ -3,6 +3,8 @@ export interface ApiKeyPrincipal {
   readonly name: string;
   /** Scopes this key grants — the guard checks the endpoint's required scope against these. */
   readonly scopes: string[];
+  /** The tenant this key belongs to — sets the request's data scope. Legacy keys → the default org. */
+  readonly orgId: string;
 }
 
 /**

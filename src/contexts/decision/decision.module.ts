@@ -21,7 +21,7 @@ import { REPLAY_LOG_PORT } from "./application/replay-log.port";
 import { ACTIVITY_LOG_PORT } from "./application/activity-log.port";
 import { IDEMPOTENCY_STORE } from "./application/idempotency.port";
 import { OUTBOX_PORT } from "./application/outbox.port";
-import { InMemoryPolicyRepository } from "./adapters/in-memory/in-memory-policy.repository";
+import { StorePolicyRepository } from "./adapters/store/store-policy.repository";
 import { StoreVerdictLog } from "./adapters/store/store-verdict-log.adapter";
 import { StoreReplayLog } from "./adapters/store/store-replay-log.adapter";
 import { StoreActivityLog } from "./adapters/store/store-activity-log.adapter";
@@ -29,8 +29,9 @@ import { StoreIdempotency } from "./adapters/store/store-idempotency.adapter";
 import { OutboxRelay } from "./application/outbox-relay.service";
 
 /**
- * One instance of InMemoryPolicyRepository backs both the read port and the admin
- * port (via useExisting), so a rollback through the admin side is visible to reads.
+ * One instance of StorePolicyRepository backs both the read port and the admin port (via
+ * useExisting), so a rollback through the admin side is visible to reads. It persists every version
+ * to the STORE, so runtime policy changes survive a restart.
  */
 @Module({
   imports: [IngestModule, FeatureStoreModule, RulesModule, ScoringModule, ListsModule, GraphModule, AnomalyModule, FeedbackModule],
@@ -39,9 +40,9 @@ import { OutboxRelay } from "./application/outbox-relay.service";
     { provide: DECIDE_PORT, useClass: DecideService },
     BacktestService,
     ErasureService,
-    InMemoryPolicyRepository,
-    { provide: POLICY_REPOSITORY_PORT, useExisting: InMemoryPolicyRepository },
-    { provide: POLICY_ADMIN_PORT, useExisting: InMemoryPolicyRepository },
+    StorePolicyRepository,
+    { provide: POLICY_REPOSITORY_PORT, useExisting: StorePolicyRepository },
+    { provide: POLICY_ADMIN_PORT, useExisting: StorePolicyRepository },
     { provide: VERDICT_LOG_PORT, useClass: StoreVerdictLog },
     { provide: REPLAY_LOG_PORT, useClass: StoreReplayLog },
     { provide: ACTIVITY_LOG_PORT, useClass: StoreActivityLog },

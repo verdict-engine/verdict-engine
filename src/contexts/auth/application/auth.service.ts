@@ -3,6 +3,7 @@ import { CLOCK, type Clock } from "@shared/ports/clock.port";
 import { ID_GENERATOR, type IdGenerator } from "@shared/ports/id-generator.port";
 import { STORE, type Collection, type Store } from "@shared/ports/store.port";
 import { DomainError } from "@shared/domain/result";
+import { DEFAULT_ORG, currentOrg } from "@shared/adapters/tenant-context";
 import type { Principal, TokenVerifier } from "@shared/ports/token-verifier.port";
 import { hashPassword, verifyPassword } from "../domain/credentials";
 import { signToken, verifyToken, type TokenClaims, type TokenConfig } from "../domain/token";
@@ -46,11 +47,12 @@ export class AuthService implements AuthPort, TokenVerifier {
     if (await this.users.hasAny()) {
       throw new DomainError("REGISTRATION_CLOSED", "an admin already exists — ask them to add you");
     }
-    return this.tokenFor(await this.create(email, password, "admin"));
+    return this.tokenFor(await this.create(email, password, "admin", DEFAULT_ORG));
   }
 
-  async createUser(email: string, password: string, role: Role): Promise<UserSummary> {
-    return summarize(await this.create(email, password, role));
+  async createUser(email: string, password: string, role: Role, orgId?: string): Promise<UserSummary> {
+    // A new operator joins the caller's tenant, unless an org is named explicitly (provisioning a new org).
+    return summarize(await this.create(email, password, role, orgId ?? currentOrg() ?? DEFAULT_ORG));
   }
 
   async login(email: string, password: string): Promise<AuthResult> {
@@ -66,13 +68,18 @@ export class AuthService implements AuthPort, TokenVerifier {
   }
 
   async listUsers(): Promise<UserSummary[]> {
-    return (await this.users.all()).map(summarize).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    // Users are stored globally (email is a system-wide identity); show only the caller's tenant.
+    const org = currentOrg() ?? DEFAULT_ORG;
+    return (await this.users.all())
+      .filter((u) => (u.orgId ?? DEFAULT_ORG) === org)
+      .map(summarize)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   async verify(token: string): Promise<Principal | null> {
     const claims = verifyToken(this.tokens, token, Date.now());
     if (!claims || (await this.isRevoked(claims))) return null;
-    return { userId: claims.sub, email: claims.email, role: claims.role };
+    return { userId: claims.sub, email: claims.email, role: claims.role, orgId: claims.org ?? DEFAULT_ORG };
   }
 
   async logout(token: string): Promise<void> {
@@ -99,7 +106,7 @@ export class AuthService implements AuthPort, TokenVerifier {
     return session !== null && claims.iat < session.validFrom;
   }
 
-  private async create(email: string, password: string, role: Role): Promise<User> {
+  private async create(email: string, password: string, role: Role, orgId: string): Promise<User> {
     const normalized = email.trim().toLowerCase();
     if (password.length < MIN_PASSWORD) {
       throw new DomainError("WEAK_PASSWORD", `password must be at least ${MIN_PASSWORD} characters`);
@@ -112,6 +119,7 @@ export class AuthService implements AuthPort, TokenVerifier {
       email: normalized,
       passwordHash: hashPassword(password),
       role,
+      orgId,
       createdAt: this.clock.isoNow(),
     };
     await this.users.save(user);
@@ -119,7 +127,12 @@ export class AuthService implements AuthPort, TokenVerifier {
   }
 
   private tokenFor(user: User): AuthResult {
-    const principal: Principal = { userId: user.id, email: user.email, role: user.role };
+    const principal: Principal = {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      orgId: user.orgId ?? DEFAULT_ORG,
+    };
     const token = signToken(this.tokens, principal, this.ids.next("tok"), Date.now());
     return { token, user: { email: user.email, role: user.role } };
   }

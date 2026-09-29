@@ -18,7 +18,9 @@ import { NotificationsModule } from "@contexts/notifications/notifications.modul
 import { SettingsModule } from "@contexts/settings/settings.module";
 import { RetentionModule } from "@contexts/retention/retention.module";
 import { AuditModule } from "@contexts/audit/audit.module";
+import { OrgsModule } from "@contexts/orgs/orgs.module";
 import { HealthController } from "./health.controller";
+import { ReadinessController } from "./readiness.controller";
 import { MetricsController } from "./metrics.controller";
 
 /**
@@ -46,7 +48,8 @@ import { MetricsController } from "./metrics.controller";
     SettingsModule,
     RetentionModule,
     AuditModule,
+    OrgsModule,
   ],
-  controllers: [HealthController, MetricsController],
+  controllers: [HealthController, ReadinessController, MetricsController],
 })
 export class AppModule {}

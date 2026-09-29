@@ -18,7 +18,7 @@ Please do **not** open a public issue for a security vulnerability — see [SECU
 Requires **Node.js ≥ 20** and npm.
 
 ```bash
-git clone https://github.com/your-org/verdict-engine.git
+git clone https://github.com/verdict-engine/verdict-engine.git
 cd verdict-engine
 npm install
 npm run start:dev        # http://localhost:4000 (in-memory store without DATABASE_URL)

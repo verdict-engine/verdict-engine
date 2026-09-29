@@ -21,5 +21,81 @@ jobs:
         run: npm run type-check
       - name: Unit & e2e tests
         run: npm test
+      - name: Production build
+        run: npm run build
       - name: Dependency audit (high+ in prod deps)
         run: npm run audit:ci
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Smoke test: the production image must build. Not pushed — just proves the Dockerfile is valid.
+      - name: Docker image build
+        run: docker build -t verdict-engine:ci .
+
+  # Boots the engine against a real PostgreSQL + Redis (production mode) and drives one decision
+  # end-to-end — so migrations, the Postgres store, Redis wiring, and the decision path are exercised
+  # against real infrastructure, not just the in-memory adapters.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verdict
+          POSTGRES_PASSWORD: verdict
+          POSTGRES_DB: verdict
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U verdict" --health-interval 5s --health-timeout 3s --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgres://verdict:verdict@localhost:5432/verdict
+      REDIS_URL: redis://localhost:6379
+      AUTH_SECRET: ci-integration-secret-not-for-production-a1b2c3d4e5f6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Start engine
+        run: node dist/main.js &
+      - name: Wait for readiness (DB + migrations + Redis)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4000/readyz > /tmp/ready.json; then
+              cat /tmp/ready.json
+              # Redis is configured, so readiness must confirm it is reachable (not skipped).
+              jq -e '.checks.store == "ok" and .checks.redis == "ok"' /tmp/ready.json && break
+            fi
+            sleep 2
+            if [ "$i" = "30" ]; then echo "engine did not become ready"; exit 1; fi
+          done
+      - name: Decide end-to-end (register → key → decision → typed-table read-back)
+        run: |
+          set -euo pipefail
+          TOKEN=$(curl -sf -X POST http://localhost:4000/v1/auth/register \
+            -H 'content-type: application/json' \
+            -d '{"email":"ci@verdict.local","password":"supersecret1"}' | jq -r .token)
+          KEY=$(curl -sf -X POST http://localhost:4000/v1/apikeys \
+            -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+            -d '{"name":"ci"}' | jq -r .plaintext)
+          VERDICT=$(curl -sf -X POST http://localhost:4000/v1/decisions \
+            -H "x-api-key: $KEY" -H 'content-type: application/json' \
+            -d '{"type":"card.authorize","amount":50,"currency":"USD","subject":{"userId":"u1"}}' | jq -r .verdict)
+          echo "verdict: $VERDICT"
+          test "$VERDICT" = "allow"
+          # The decision must be readable back from the typed verdict_log table via the indexed query
+          # (proves the typed-table write committed in the decision transaction and the pushdown read works).
+          RECENT=$(curl -sf "http://localhost:4000/v1/verdicts?limit=5" -H "authorization: Bearer $TOKEN")
+          echo "$RECENT" | jq -e 'length >= 1 and .[0].verdict == "allow"'

@@ -17,6 +17,9 @@ const isDescribable = (s: unknown): s is Describable => typeof (s as Describable
 interface MlModelView {
   active: boolean;
   source: string;
+  /** "synthetic-demo" for the bundled reference model (trained on synthetic data — NOT a fraud model);
+   * "operator-supplied" once weights are loaded from MODEL_PATH / MODEL_URL / MODEL_S3_*. */
+  provenance: "synthetic-demo" | "operator-supplied";
   trainedAt: string;
   metrics: MlModel["metrics"];
   bias: number;
@@ -50,11 +53,13 @@ export class ModelController {
     // Live model when the ML scorer is active; otherwise the bundled weights (what you'd get with SCORER=ml).
     const live = scorer === "ml" && isDescribable(this.scorer) ? this.scorer.describe() : null;
     const model = live?.model ?? ML_WEIGHTS;
+    const source = live?.source ?? modelSourceKind();
     return {
       scorer,
       ml: {
         active: scorer === "ml",
-        source: live?.source ?? modelSourceKind(),
+        source,
+        provenance: source === "bundled" ? "synthetic-demo" : "operator-supplied",
         trainedAt: model.trainedAt,
         metrics: model.metrics,
         bias: model.bias,

@@ -14,21 +14,10 @@ export class StoreActivityLog implements ActivityLogPort {
   }
 
   async recent(limit: number): Promise<ActivityEntry[]> {
-    return (await this.store.collection<ActivityEntry>(COLLECTION).all())
-      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
-      .slice(0, limit);
+    return this.store.collection<ActivityEntry>(COLLECTION).query({ orderByDesc: "decidedAt", limit });
   }
 
   async eraseSubject(userId: string): Promise<number> {
-    const col = this.store.collection<ActivityEntry>(COLLECTION);
-    const all = await col.all();
-    let removed = 0;
-    for (const entry of all) {
-      if (entry.request.subject.userId === userId) {
-        await col.delete(entry.id);
-        removed++;
-      }
-    }
-    return removed;
+    return this.store.collection<ActivityEntry>(COLLECTION).deleteWhere("request.subject.userId", userId);
   }
 }

@@ -14,16 +14,12 @@ export class StoreReplayLog implements ReplayLogPort {
   }
 
   async samplesFor(eventType: string, limit: number): Promise<ReplaySample[]> {
-    return (await this.store.collection<ReplaySample>(COLLECTION).all())
-      .filter((s) => s.eventType === eventType)
-      .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt))
-      .slice(0, limit);
+    return this.store
+      .collection<ReplaySample>(COLLECTION)
+      .query({ where: { eventType }, orderByDesc: "decidedAt", limit });
   }
 
   async eraseSubject(userId: string): Promise<number> {
-    const col = this.store.collection<ReplaySample>(COLLECTION);
-    const matches = (await col.all()).filter((s) => s.event.subject.userId === userId);
-    for (const sample of matches) await col.delete(sample.eventId);
-    return matches.length;
+    return this.store.collection<ReplaySample>(COLLECTION).deleteWhere("event.subject.userId", userId);
   }
 }

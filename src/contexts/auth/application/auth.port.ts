@@ -15,8 +15,8 @@ export interface AuthPort {
   /** Bootstrap: creates the first user as admin. Fails once any user exists. */
   register(email: string, password: string): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
-  /** Admin action: create an additional operator. */
-  createUser(email: string, password: string, role: Role): Promise<UserSummary>;
+  /** Admin action: create an additional operator (in the caller's org, or `orgId` when provisioning one). */
+  createUser(email: string, password: string, role: Role, orgId?: string): Promise<UserSummary>;
   status(): Promise<{ needsBootstrap: boolean }>;
   listUsers(): Promise<UserSummary[]>;
   /** Revoke a single token (this session's logout). */

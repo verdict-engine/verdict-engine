@@ -77,6 +77,14 @@ services:
       - MODEL_REFRESH_MINUTES=${MODEL_REFRESH_MINUTES:-0}
       # Reclaim disk after a prune sweep that deleted rows (Postgres VACUUM).
       - RETENTION_VACUUM=${RETENTION_VACUUM:-false}
+      # Protect /metrics with a bearer token (unset = public; keep the port private either way).
+      - METRICS_TOKEN=${METRICS_TOKEN:-}
+      # Distributed tracing: set an OTLP/HTTP endpoint (e.g. an OpenTelemetry Collector) to enable it.
+      # Unset = tracing off (no overhead). TRACE_SAMPLE_RATIO in [0,1] head-samples root traces.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-verdict-engine}
+      - TRACE_SAMPLE_RATIO=${TRACE_SAMPLE_RATIO:-1}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
       # Filesystem paths whose disk health to report at GET /v1/config/storage (comma-separated).
       # The engine only sees filesystems mounted into its OWN container. To watch the Postgres
       # volume from here, uncomment the read-only mount below and set this to /monitor/db.

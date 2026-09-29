@@ -1,9 +1,9 @@
 import { Module } from "@nestjs/common";
 import { LISTS_PORT } from "./application/lists.port";
-import { InMemoryLists } from "./adapters/in-memory/in-memory-lists.adapter";
+import { StoreLists } from "./adapters/store/store-lists.adapter";
 
 @Module({
-  providers: [{ provide: LISTS_PORT, useClass: InMemoryLists }],
+  providers: [{ provide: LISTS_PORT, useClass: StoreLists }],
   exports: [LISTS_PORT],
 })
 export class ListsModule {}

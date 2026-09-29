@@ -8,6 +8,8 @@ export interface ListEntry {
   readonly subject: ListSubject;
   readonly value: string;
   readonly reason?: string;
+  /** The owning tenant, stored so boot hydration (which reads all orgs) can bucket entries by org. */
+  readonly orgId?: string;
 }
 
 /** Outcome of consulting the lists — precedence: block > allow > watch. */
