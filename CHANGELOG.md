@@ -8,6 +8,17 @@ All notable changes to Verdict Engine are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Shadow mode.** Send `X-Verdict-Mode: shadow` on a decision (sync, batch, or async) to score live
+  traffic **without enforcing it** — the verdict is logged for comparison but triggers no webhook /
+  notification fan-out and creates no review case (`shadow: true` on the response). `GET /v1/shadow/report`
+  summarizes shadow decisions over a window and, as chargeback labels arrive, reports what share of
+  confirmed fraud the shadow policy would have caught vs missed — the side-by-side a team needs before
+  trusting a switch. New `verdict_shadow_decisions_total` metric keeps shadow out of the live counter.
+- **Three-layer reason codes.** Every decision now carries, in addition to the analyst `reasons`
+  (rule tags + points): `reasonCodes` — stable, documented codes for the merchant's ops/dispute team
+  (e.g. `ACCOUNT_TAKEOVER`, `VELOCITY_HIGH`, never shown to a customer) — and `customerMessage`, one
+  vague verdict-level line safe to show the cardholder that never names a signal. So a decline can be
+  explained to each audience without teaching a fraudster which rule fired.
 - **Multi-tenancy (org isolation at the store seam).** Every user, API key, and the decision data they
   produce belongs to an org. A request's tenant is derived server-side from the authenticated API key
   or operator token (never spoofable from the client) and carried on an `AsyncLocalStorage`, so the

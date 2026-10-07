@@ -8,6 +8,7 @@
  * mirror; they are descriptive, not authoritative.
  */
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { REASON_CODES } from "@contexts/decision/application/decision.contracts";
 
 const EVENT_TYPES = [
   "card.authorize",
@@ -103,6 +104,14 @@ export class DecisionReasonDto {
   points!: number;
 }
 
+export class ReasonCodeDto {
+  @ApiProperty({ enum: REASON_CODES, description: "Stable, documented code for your ops/dispute team — never shown to the end customer.", example: "VELOCITY_HIGH" })
+  code!: string;
+
+  @ApiProperty({ description: "Category the code belongs to.", example: "velocity" })
+  category!: string;
+}
+
 export class DecisionDto {
   @ApiProperty({ example: "vrd_0R7..." })
   id!: string;
@@ -116,8 +125,14 @@ export class DecisionDto {
   @ApiProperty({ description: "Risk score 0-100.", example: 72 })
   score!: number;
 
-  @ApiProperty({ type: [DecisionReasonDto], description: "Why the verdict was reached — the rules that contributed." })
+  @ApiProperty({ type: [DecisionReasonDto], description: "Analyst layer: the rules that fired and their points. Internal — never show a customer." })
   reasons!: DecisionReasonDto[];
+
+  @ApiProperty({ type: [ReasonCodeDto], description: "Merchant/dispute layer: stable codes derived from the reasons, safe to log and act on." })
+  reasonCodes!: ReasonCodeDto[];
+
+  @ApiProperty({ description: "Customer layer: one vague, verdict-level line safe to show the cardholder.", example: "Additional verification is required to complete this transaction." })
+  customerMessage!: string;
 
   @ApiProperty({ example: "default" })
   policyId!: string;
@@ -127,6 +142,41 @@ export class DecisionDto {
 
   @ApiProperty({ example: "2026-09-18T10:30:00.100Z" })
   decidedAt!: string;
+
+  @ApiProperty({ required: false, description: "Present and true only for shadow-mode decisions (scored, not enforced).", example: false })
+  shadow?: boolean;
+}
+
+export class ShadowReportDto {
+  @ApiProperty({ description: "The window and sample size the report covers.", example: { sinceDays: 30, from: "2026-09-07T00:00:00.000Z" } })
+  window!: { sinceDays: number; from: string };
+
+  @ApiProperty({ description: "Most-recent decisions scanned (the cap).", example: 10000 })
+  scanned!: number;
+
+  @ApiProperty({ description: "Shadow decisions found in the window.", example: 1840 })
+  total!: number;
+
+  @ApiProperty({ description: "Shadow decisions by verdict.", example: { allow: 1600, challenge: 90, review: 120, deny: 30 } })
+  byVerdict!: Record<string, number>;
+
+  @ApiProperty({ description: "Fraction the shadow policy would have stopped (review + deny) — compare at parity.", example: 0.081 })
+  wouldBlockRate!: number;
+
+  @ApiProperty({ description: "Fraction routed to step-up (challenge).", example: 0.049 })
+  challengeRate!: number;
+
+  @ApiProperty({ description: "Shadow decisions that now carry a confirmed-fraud label (grows as chargebacks arrive).", example: 22 })
+  labeledFraud!: number;
+
+  @ApiProperty({ description: "Of the labeled fraud, how many the shadow verdict would have stopped (review/deny).", example: 19 })
+  caught!: number;
+
+  @ApiProperty({ description: "Of the labeled fraud, how many it would have let through (allow/challenge).", example: 3 })
+  missed!: number;
+
+  @ApiProperty({ description: "caught / labeledFraud — confirmed-fraud catch rate of the shadow policy.", example: 0.8636 })
+  catchRate!: number;
 }
 
 // ---------------------------------------------------------------------------

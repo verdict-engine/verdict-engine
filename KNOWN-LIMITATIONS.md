@@ -71,6 +71,7 @@ Webhook delivery is durable, but the **receiver's** side effects are outside Ver
 
 ## Operations
 - `/health` is **liveness only**; use `/readyz` for readiness.
+- **Shadow report** (`GET /v1/shadow/report`) scans the most-recent N decisions (default 10k, max 100k) and filters in memory, rather than range-querying the window — so on a very large shadow volume it reflects the most recent N, not every decision in the window. The fraud-catch figures also lag reality until chargeback labels arrive (weeks), by design.
 - `/metrics` is public by default — keep it on a private port / network, or set `METRICS_TOKEN` to require a bearer token.
 - **Distributed tracing** is off until you set `OTEL_EXPORTER_OTLP_ENDPOINT`. When on, the request/decision path is traced over OTLP/HTTP (W3C trace-context, incoming `traceparent` honoured). Outbound webhook/notification deliveries run off the durable outbox after the request returns and are **not yet** linked into the originating trace — that propagation is planned.
 - `RETENTION_VACUUM` issues a PostgreSQL `VACUUM`; confirm your managed-Postgres permissions allow it.

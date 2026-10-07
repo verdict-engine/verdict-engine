@@ -6,7 +6,7 @@ import { STORE, type Store } from "@shared/ports/store.port";
 import { ALERT_SETTINGS, type AlertSettings } from "@shared/adapters/alert-settings";
 import { ALERT_ANOMALY, type AnomalyAlertPayload } from "@shared/domain/alerts";
 import { causeMessage, logEvent } from "@shared/observability/log";
-import { decisionDuration, decisionsTotal, degradedTotal } from "@shared/observability/metrics";
+import { decisionDuration, decisionsTotal, degradedTotal, shadowDecisionsTotal } from "@shared/observability/metrics";
 import { tracer } from "@shared/observability/trace";
 import { type Result, ok } from "@shared/domain/result";
 import type { VerdictId } from "@shared/domain/ids";
@@ -28,7 +28,8 @@ import {
 import { LISTS_PORT, type ListsPort } from "@contexts/lists/application/lists.port";
 import type { Policy } from "../domain/policy";
 import { resolveVerdict } from "../domain/policy";
-import type { Decision, Verdict } from "../domain/verdict";
+import type { Decision, DecisionMode, Verdict } from "../domain/verdict";
+import { customerMessageFor, reasonCodesFrom } from "../domain/reason-codes";
 import { VERDICT_REACHED, toVerdictReachedPayload } from "../domain/events";
 import type { DecidePort } from "./decide.port";
 import {
@@ -76,24 +77,25 @@ export class DecideService implements DecidePort {
     event: RiskEvent,
     correlationId: string,
     idempotencyKey?: string,
+    mode: DecisionMode = "enforce",
   ): Promise<Result<Decision>> {
     const started = Date.now();
     const key = idempotencyKey ?? event.id;
     const existing = await this.idempotency.get(key);
     if (existing) {
-      decisionsTotal.inc({ verdict: existing.verdict, cached: "true" });
+      count(existing, "true");
       return ok(existing);
     }
 
     return tracer.withSpan("decision.decide", async (span) => {
       span.setAttribute("event.type", event.type);
+      span.setAttribute("mode", mode);
       const policy = await this.policies.loadFor(event.type);
-      const outcome = await tracer.withSpan("decision.evaluate", () => this.evaluate(event, policy));
+      const outcome = await tracer.withSpan("decision.evaluate", () => this.evaluate(event, policy, mode));
       const decision = await tracer.withSpan("decision.commit", () => this.commit(outcome, event, correlationId, key));
       decisionDuration.observe(Date.now() - started);
       // `decision` is the winner's — on a concurrent duplicate, commit returns the already-committed one.
-      const cached = decision === outcome.decision ? "false" : "true";
-      decisionsTotal.inc({ verdict: decision.verdict, cached });
+      count(decision, decision === outcome.decision ? "false" : "true");
       span.setAttribute("verdict", decision.verdict);
       span.setAttribute("score", decision.score);
       return ok(decision);
@@ -105,14 +107,14 @@ export class DecideService implements DecidePort {
     return this.idempotency.get(idempotencyKey);
   }
 
-  private async evaluate(event: RiskEvent, policy: Policy): Promise<Outcome> {
+  private async evaluate(event: RiskEvent, policy: Policy, mode: DecisionMode): Promise<Outcome> {
     try {
       const list = await this.lists.check(event);
       if (list.decision === "deny") {
-        return { decision: this.build(event, policy, "deny", [{ tag: "list.block", points: 0 }], -1) };
+        return { decision: this.build(event, policy, "deny", [{ tag: "list.block", points: 0 }], -1, mode) };
       }
       if (list.decision === "allow") {
-        return { decision: this.build(event, policy, "allow", [{ tag: "list.allow", points: 0 }], -1) };
+        return { decision: this.build(event, policy, "allow", [{ tag: "list.allow", points: 0 }], -1, mode) };
       }
 
       const base = await tracer.withSpan("feature-store.snapshot", () => this.features.snapshot(event));
@@ -138,7 +140,7 @@ export class DecideService implements DecidePort {
       await this.features.record(event);
       await this.graph.observe(event);
       await this.anomaly.observe(event);
-      const decision = this.build(event, policy, verdict, reasons, score.value);
+      const decision = this.build(event, policy, verdict, reasons, score.value, mode);
       const replay: ReplaySample = {
         eventId: event.id,
         eventType: event.type,
@@ -159,7 +161,7 @@ export class DecideService implements DecidePort {
         verdict,
         cause: causeMessage(cause),
       });
-      return { decision: this.build(event, policy, verdict, [{ tag: "engine.degraded", points: 0 }], -1) };
+      return { decision: this.build(event, policy, verdict, [{ tag: "engine.degraded", points: 0 }], -1, mode) };
     }
   }
 
@@ -179,20 +181,26 @@ export class DecideService implements DecidePort {
       toVerdictReachedPayload(outcome.decision, event.type, outcome.reviewQueue),
     );
     const anomalyEvent = await this.anomalyAlertFor(outcome, event, correlationId);
-    let committed = false;
+    // Shadow decisions are logged for comparison but never enforced: no verdict fan-out (webhooks,
+    // notifications, review-case creation) and no anomaly alert. The verdict/activity/replay records
+    // still land so the shadow report can compare them against the live system and the labels.
+    const enforced = outcome.decision.shadow !== true;
+    let emitted = false;
     const decision = await this.store.transaction(async (tx) => {
       const prior = await this.idempotency.claim(tx, key, outcome.decision);
       if (prior) return prior; // a concurrent/earlier request won this key — write nothing else
       await this.log.append(outcome.decision, tx);
       await this.activity.append(entry, tx);
       if (outcome.replay) await this.replay.record(outcome.replay, tx);
-      await this.outbox.enqueue(outboxEvent, tx);
-      if (anomalyEvent) await this.outbox.enqueue(anomalyEvent, tx);
-      committed = true;
+      if (enforced) {
+        await this.outbox.enqueue(outboxEvent, tx);
+        if (anomalyEvent) await this.outbox.enqueue(anomalyEvent, tx);
+        emitted = true;
+      }
       return outcome.decision;
     });
     // Nudge the relay only when we actually enqueued (non-blocking, off the request path).
-    if (committed) this.outbox.flush();
+    if (emitted) this.outbox.flush();
     return decision;
   }
 
@@ -242,6 +250,7 @@ export class DecideService implements DecidePort {
     verdict: Verdict,
     reasons: Reason[],
     score: number,
+    mode: DecisionMode,
   ): Decision {
     return {
       id: this.ids.next("vd") as VerdictId,
@@ -249,9 +258,12 @@ export class DecideService implements DecidePort {
       verdict,
       score,
       reasons,
+      reasonCodes: reasonCodesFrom(reasons),
+      customerMessage: customerMessageFor(verdict),
       policyId: policy.id,
       policyVersion: policy.version,
       decidedAt: this.clock.isoNow(),
+      ...(mode === "shadow" ? { shadow: true } : {}),
     };
   }
 
@@ -264,4 +276,10 @@ export class DecideService implements DecidePort {
       payload,
     };
   }
+}
+
+/** Count a decision on the right series: shadow decisions are kept out of the live verdict metric. */
+function count(decision: Decision, cached: string): void {
+  if (decision.shadow) shadowDecisionsTotal.inc({ verdict: decision.verdict });
+  else decisionsTotal.inc({ verdict: decision.verdict, cached });
 }

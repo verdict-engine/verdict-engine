@@ -133,7 +133,8 @@ export const decisionDuration = registry.histogram(
   "End-to-end decision latency in milliseconds",
   [5, 10, 20, 50, 100, 200, 500, 1000, 2000],
 );
-export const decisionsTotal = registry.counter("verdict_decisions_total", "Decisions returned, by verdict");
+export const decisionsTotal = registry.counter("verdict_decisions_total", "Enforced decisions returned, by verdict");
+export const shadowDecisionsTotal = registry.counter("verdict_shadow_decisions_total", "Shadow-mode decisions scored but not enforced, by verdict");
 export const degradedTotal = registry.counter("verdict_degraded_total", "Decisions served from the fail-open/closed path");
 export const rateLimitedTotal = registry.counter("verdict_rate_limited_total", "Requests rejected with 429, by bucket");
 export const outboxDeliveredTotal = registry.counter("verdict_outbox_delivered_total", "Outbox events published to the bus");

@@ -10,8 +10,10 @@ import { FeedbackModule } from "@contexts/feedback/feedback.module";
 import { DecisionController } from "./adapters/http/decision.controller";
 import { ConfigController } from "./adapters/http/config.controller";
 import { PrivacyController } from "./adapters/http/privacy.controller";
+import { ShadowController } from "./adapters/http/shadow.controller";
 import { DECIDE_PORT } from "./application/decide.port";
 import { DecideService } from "./application/decide.service";
+import { ShadowReportService } from "./application/shadow-report.service";
 import { BacktestService } from "./application/backtest.service";
 import { ErasureService } from "./application/erasure.service";
 import { POLICY_REPOSITORY_PORT } from "./application/policy-repository.port";
@@ -35,9 +37,10 @@ import { OutboxRelay } from "./application/outbox-relay.service";
  */
 @Module({
   imports: [IngestModule, FeatureStoreModule, RulesModule, ScoringModule, ListsModule, GraphModule, AnomalyModule, FeedbackModule],
-  controllers: [DecisionController, ConfigController, PrivacyController],
+  controllers: [DecisionController, ConfigController, PrivacyController, ShadowController],
   providers: [
     { provide: DECIDE_PORT, useClass: DecideService },
+    ShadowReportService,
     BacktestService,
     ErasureService,
     StorePolicyRepository,

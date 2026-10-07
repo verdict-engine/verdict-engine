@@ -22,9 +22,14 @@ import { BatchDecisionDto, DecisionDto, DecisionEventDto } from "../../../../doc
 import { ID_GENERATOR, type IdGenerator } from "@shared/ports/id-generator.port";
 import { INGEST_PORT, type IngestPort } from "@contexts/ingest/application/ingest.port";
 import { DECIDE_PORT, type DecidePort } from "../../application/decide.port";
-import type { Decision } from "../../domain/verdict";
+import type { Decision, DecisionMode } from "../../domain/verdict";
 
 const MAX_BATCH = 100;
+
+/** Parse the optional X-Verdict-Mode header — anything but "shadow" (incl. absent) means enforce. */
+function modeFrom(header?: string): DecisionMode {
+  return header?.toLowerCase() === "shadow" ? "shadow" : "enforce";
+}
 
 /** One entry in a batch response: the verdict, or a shaped error for that event alone. */
 type BatchItem = { ok: true; decision: Decision } | { ok: false; error: { code: string; message: string } };
@@ -60,12 +65,14 @@ export class DecisionController {
   @ApiBody({ type: DecisionEventDto })
   @ApiHeader({ name: "Idempotency-Key", required: false, description: "Replays return the original verdict instead of re-scoring." })
   @ApiHeader({ name: "X-Correlation-Id", required: false, description: "Echoed through logs and the stored verdict for tracing. Generated if omitted." })
+  @ApiHeader({ name: "X-Verdict-Mode", required: false, description: "`shadow` scores the event without enforcing it (logged for comparison, no fan-out, no case). Default `enforce`." })
   @ApiOkResponse({ type: DecisionDto, description: "The verdict. Returned with HTTP 200 even for a deny." })
   @RateLimit({ name: "decisions", by: "apikey" })
   async create(
     @Body() body: unknown,
     @Headers("idempotency-key") idempotencyKey?: string,
     @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-verdict-mode") mode?: string,
   ): Promise<Decision> {
     const normalized = this.ingest.normalize(body);
     if (!normalized.ok) {
@@ -73,7 +80,7 @@ export class DecisionController {
       throw new BadRequestException({ error: true, code: normalized.error.code, message: normalized.error.message });
     }
 
-    const result = await this.decide.decide(normalized.value, correlationId ?? this.ids.next("cor"), idempotencyKey);
+    const result = await this.decide.decide(normalized.value, correlationId ?? this.ids.next("cor"), idempotencyKey, modeFrom(mode));
     if (!result.ok) {
       throw new ServiceUnavailableException({ error: true, code: result.error.code, message: "decision temporarily unavailable" });
     }
@@ -89,15 +96,20 @@ export class DecisionController {
   })
   @RequireApiScope("decisions")
   @ApiBody({ type: BatchDecisionDto })
+  @ApiHeader({ name: "X-Verdict-Mode", required: false, description: "`shadow` scores every event in the batch without enforcing. Default `enforce`." })
   @RateLimit({ name: "decisions", by: "apikey" })
-  async createBatch(@Body() body: { events?: unknown[] }, @Headers("x-correlation-id") correlationId?: string): Promise<{ results: BatchItem[] }> {
+  async createBatch(
+    @Body() body: { events?: unknown[] },
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-verdict-mode") mode?: string,
+  ): Promise<{ results: BatchItem[] }> {
     const events = body?.events;
     if (!Array.isArray(events)) throw new BadRequestException({ error: true, code: "INVALID_BATCH", message: "body.events must be an array" });
     if (events.length === 0 || events.length > MAX_BATCH) {
       throw new BadRequestException({ error: true, code: "INVALID_BATCH", message: `events must contain between 1 and ${MAX_BATCH} items` });
     }
     const cor = correlationId ?? this.ids.next("cor");
-    const results = await Promise.all(events.map((e) => this.decideOne(e, cor)));
+    const results = await Promise.all(events.map((e) => this.decideOne(e, cor, modeFrom(mode))));
     return { results };
   }
 
@@ -110,7 +122,12 @@ export class DecisionController {
   })
   @RequireApiScope("decisions")
   @ApiBody({ type: DecisionEventDto })
-  async createAsync(@Body() body: unknown, @Headers("x-correlation-id") correlationId?: string): Promise<{ accepted: true; id: string; correlationId: string }> {
+  @ApiHeader({ name: "X-Verdict-Mode", required: false, description: "`shadow` scores without enforcing. Default `enforce`." })
+  async createAsync(
+    @Body() body: unknown,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-verdict-mode") mode?: string,
+  ): Promise<{ accepted: true; id: string; correlationId: string }> {
     const normalized = this.ingest.normalize(body);
     if (!normalized.ok) {
       throw new BadRequestException({ error: true, code: normalized.error.code, message: normalized.error.message });
@@ -118,7 +135,7 @@ export class DecisionController {
     const event = normalized.value;
     const cor = correlationId ?? this.ids.next("cor");
     // Fire-and-forget: the verdict lands in the durable log + idempotency store and fans out on the bus.
-    void this.decide.decide(event, cor, event.id).then(
+    void this.decide.decide(event, cor, event.id, modeFrom(mode)).then(
       (r) => {
         if (!r.ok) logEvent("error", "decision.async_failed", { eventId: event.id, code: r.error.code });
       },
@@ -141,10 +158,10 @@ export class DecisionController {
   }
 
   /** Normalize + decide one event into a batch entry, mapping failures to a per-item error. */
-  private async decideOne(raw: unknown, correlationId: string): Promise<BatchItem> {
+  private async decideOne(raw: unknown, correlationId: string, mode: DecisionMode): Promise<BatchItem> {
     const normalized = this.ingest.normalize(raw);
     if (!normalized.ok) return { ok: false, error: { code: normalized.error.code, message: normalized.error.message } };
-    const result = await this.decide.decide(normalized.value, correlationId, normalized.value.id);
+    const result = await this.decide.decide(normalized.value, correlationId, normalized.value.id, mode);
     if (!result.ok) return { ok: false, error: { code: result.error.code, message: "decision temporarily unavailable" } };
     return { ok: true, decision: result.value };
   }

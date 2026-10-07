@@ -1,6 +1,6 @@
 import type { Result } from "@shared/domain/result";
 import type { RiskEvent } from "@contexts/ingest/application/ingest.port";
-import type { Decision } from "../domain/verdict";
+import type { Decision, DecisionMode } from "../domain/verdict";
 
 /**
  * The engine's single inbound use-case — HTTP, a queue consumer, or gRPC all call
@@ -11,11 +11,14 @@ export interface DecidePort {
    * @param idempotencyKey optional; when a caller retries with the same key, the
    * original decision is returned instead of computing (and logging) a new one.
    * Defaults to the event id.
+   * @param mode `enforce` (default) applies the verdict; `shadow` scores without enforcing — logged
+   * for comparison, no webhook/notification fan-out and no review case.
    */
   decide(
     event: RiskEvent,
     correlationId: string,
     idempotencyKey?: string,
+    mode?: DecisionMode,
   ): Promise<Result<Decision>>;
 
   /**
