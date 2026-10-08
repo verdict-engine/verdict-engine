@@ -1,6 +1,6 @@
 {
   "name": "verdict-engine",
-  "version": "0.7.0",
+  "version": "1.0.3-beta",
   "description": "Open-source fraud & risk decisioning engine — a modular monolith whose seams are already service boundaries.",
   "license": "Apache-2.0",
   "type": "commonjs",

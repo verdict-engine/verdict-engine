@@ -10,13 +10,13 @@ Architecturally it is a **NestJS modular monolith**. Its bounded contexts commun
 
 > **Rules propose. Scoring weighs. Decision decides.**
 
-> ⚠️ Verdict is in **beta** (`v0.7.0`, pre-1.0). It is functional and self-hostable, but APIs, schemas, and defaults may still change between releases. Pin a version and review the changelog before upgrading.
+> ⚠️ Verdict is in **beta** (`v1.0.3-beta`, a pre-release of 1.0). It is functional and self-hostable, but APIs, schemas, and defaults may still change before the stable 1.0. Pin a version and review the changelog before upgrading.
 
 ## Updates
 
-`v0.7.0` is the current beta. It completes the full decision loop and the operator tooling around it.
+`v1.0.3-beta` is the current release — the first `1.0` beta line. It completes the full decision loop, the operator tooling around it, and multi-tenancy.
 
-The main features of Verdict `v0.7.0`:
+The main features of Verdict `v1.0.3-beta`:
 
 * **One decision API, three shapes** — synchronous `POST /v1/decisions`, **batch** (up to 100 events each scored independently), and **async** (`202` + poll `GET /v1/decisions/{id}` or receive by webhook).
 * **Three scorers behind one seam** — transparent hand weights (default), an **adaptive** model that learns each signal's fraud rate from your own labels, and a **trained ML** logistic-regression scorer over the full feature vector. Switch with one env var; hot-swap the ML weights from a local file, an HTTPS URL, or S3-compatible storage — no redeploy.
@@ -27,7 +27,7 @@ The main features of Verdict `v0.7.0`:
 * **Multi-tenant** — every user, API key, the decision data it produces, **and its decisioning config (policies, rules, lists)** belong to an **org**, derived server-side from the key/token and isolated centrally in the store; one tenant can't see another's data or affect its rules. Provision tenants with `POST /v1/orgs`. Single-tenant deployments run in the `default` org, unchanged.
 * **Clients** — an operator **dashboard**, a full **docs site**, official **TypeScript and Flutter SDKs**, and an **MCP server** so an LLM agent can drive the engine as tools.
 
-Next up (`v0.8` → `1.0`): Python & React Native SDKs, typed high-volume tables, readiness probes and CI on every surface, and auth self-service — see the [Roadmap](#upcoming-roadmap).
+Next up (the road to stable `1.0`): Python & React Native SDKs, per-org runtime settings, case reassignment/re-open, and auth self-service — see the [Roadmap](#upcoming-roadmap).
 
 [**Try it now →**](#installation) · [Documentation](./docs) · [Deployment guide](./DEPLOYMENT.md) · [Architecture](./ARCHITECTURE.md)
 
@@ -238,13 +238,14 @@ Before submitting a change, run `npm run type-check`, `npm run lint`, and `npm r
 
 ## Upcoming Roadmap
 
-Delivered through `v0.7.0`: the decision API (sync/batch/async), the rules DSL, all three scorers, the full signal set (geo, device, graph, anomaly), cases + the feedback loop, outbox/webhooks/notifications, retention, audit, metrics, auth + API keys, the dashboard and docs site, and the TypeScript & Flutter SDKs.
+Delivered in the `1.0` beta line (current: `v1.0.3-beta`): the decision API (sync/batch/async), the rules DSL, all three scorers, the full signal set (geo, device, graph, anomaly), cases + the feedback loop, outbox/webhooks/notifications, retention, audit, metrics, auth + API keys, the dashboard and docs site, and the TypeScript & Flutter SDKs — plus **shadow mode** with the comparison report, **three-layer reason codes**, **distributed tracing** (OpenTelemetry/OTLP), **typed high-volume tables** (verdicts, activity, replay) with query pushdown, a **readiness probe**, CI across the engine, dashboard & docs, and **multi-tenancy** — an org-scoped store (API-key→org) with each tenant's decision data, keys, operators, **and decisioning config (policies, rules, lists) private**.
 
-Planned (subject to change while in beta):
+Planned on the road to stable `1.0` (subject to change while in beta):
 
-* `v0.8` — Python & React Native SDKs; a readiness probe, **distributed tracing** (OpenTelemetry/OTLP), and CI on the dashboard & docs; auth self-service (password reset, MFA, account lockout). The high-volume decision logs (verdicts, activity, replay) now sit in typed, indexed tables with query pushdown.
-* `v0.9` — extend the typed schema to the remaining collections; per-org runtime settings; case reassignment and re-open.
-* `v1.0` — general availability: stability guarantees, hardened defaults. **Multi-tenancy** has landed — org-scoped store (API-key→org) with each tenant's decision data, keys, operators, **and decisioning config (policies, rules, lists) private**.
+* Python & React Native SDKs.
+* Per-org runtime settings; extend the typed schema to the remaining collections; case reassignment and re-open.
+* Auth self-service (password reset, MFA, account lockout).
+* **Stable `1.0` (GA)** — API/schema stability guarantees and hardened defaults, once the beta line settles.
 
 ## Contributing
 

@@ -7,6 +7,13 @@ All notable changes to Verdict Engine are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.3-beta] — 2026-10
+
+The first `1.0` beta line (1.0.0-beta → 1.0.3-beta). Everything below shipped since the `0.7.0`
+public beta: shadow mode, three-layer reason codes, multi-tenancy with per-org config, distributed
+tracing, typed high-volume tables, and the operability hardening around them. APIs and schemas may
+still change before the stable 1.0.
+
 ### Added
 - **Shadow mode.** Send `X-Verdict-Mode: shadow` on a decision (sync, batch, or async) to score live
   traffic **without enforcing it** — the verdict is logged for comparison but triggers no webhook /
