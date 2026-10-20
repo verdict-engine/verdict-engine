@@ -15,7 +15,7 @@ export function evaluateRules(
   const hits: RuleHit[] = [];
   for (const rule of rules) {
     if (evaluateCondition(rule.condition, ns)) {
-      hits.push({ ruleId: rule.id, tag: rule.tag, weight: rule.weight });
+      hits.push({ ruleId: rule.id, name: rule.name, tag: rule.tag, weight: rule.weight });
     }
   }
   return hits;

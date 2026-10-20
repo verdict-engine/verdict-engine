@@ -4,6 +4,7 @@ import type { Clock } from "@shared/ports/clock.port";
 import type { IdGenerator } from "@shared/ports/id-generator.port";
 import type { Store, TxContext } from "@shared/ports/store.port";
 import type { AlertSettings } from "@shared/adapters/alert-settings";
+import type { ShadowSettings } from "@shared/adapters/shadow-settings";
 import type { DeviceId, EventId, PolicyId, UserId, VerdictId } from "@shared/domain/ids";
 import type { FeatureStorePort } from "@contexts/feature-store/application/feature-store.port";
 import type { RiskEvent } from "@contexts/ingest/application/ingest.port";
@@ -60,6 +61,7 @@ describe("DecideService", () => {
   let clock: MockProxy<Clock>;
   let store: MockProxy<Store>;
   let alerts: MockProxy<AlertSettings>;
+  let shadow: MockProxy<ShadowSettings>;
   let svc: DecideService;
 
   beforeEach(() => {
@@ -80,6 +82,8 @@ describe("DecideService", () => {
     store = mock<Store>();
     alerts = mock<AlertSettings>();
     alerts.anomalyThreshold.mockResolvedValue(3);
+    shadow = mock<ShadowSettings>();
+    shadow.forced.mockResolvedValue(false);
     // Run the commit body against the mocked ports, as a real transaction would.
     store.transaction.mockImplementation((fn: (tx: TxContext) => Promise<unknown>) => fn(store));
 
@@ -101,7 +105,7 @@ describe("DecideService", () => {
     scorer.score.mockResolvedValue({ value: 0, contributions: [], model: "m" });
 
     svc = new DecideService(
-      features, graph, anomaly, rules, scorer, lists, policies, log, replay, activity, idem, outbox, ids, clock, store, alerts,
+      features, graph, anomaly, rules, scorer, lists, policies, log, replay, activity, idem, outbox, ids, clock, store, alerts, shadow,
     );
   });
 

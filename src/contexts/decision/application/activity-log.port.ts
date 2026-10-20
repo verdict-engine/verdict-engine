@@ -2,6 +2,14 @@ import type { TxContext } from "@shared/ports/store.port";
 import type { SanitizedRequest } from "../domain/sanitize";
 import type { Verdict } from "../domain/verdict";
 
+/** One rule that fired on a decision — the provenance behind the reasons, for operator tracing. */
+export interface RuleFired {
+  readonly ruleId: string;
+  readonly name: string;
+  readonly tag: string;
+  readonly weight: number;
+}
+
 /**
  * The API interaction log: one entry per scored request, pairing the (masked, compliant)
  * request payload with the verdict it produced. Append-only like the verdict log, but it also
@@ -16,6 +24,9 @@ export interface ActivityEntry {
   readonly verdict: Verdict;
   readonly score: number;
   readonly reasons: ReadonlyArray<{ readonly tag: string; readonly points: number }>;
+  /** The rules that fired, by name — so an operator can trace exactly which rule produced the
+   *  verdict. Absent on decisions that ran no rules (list/degraded short-circuits) or older rows. */
+  readonly rulesFired?: ReadonlyArray<RuleFired>;
   readonly policyId: string;
   readonly policyVersion: string;
   readonly decidedAt: string;

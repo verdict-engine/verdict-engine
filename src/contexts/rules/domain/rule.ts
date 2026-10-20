@@ -21,6 +21,9 @@ export type CompareOp = "gt" | "gte" | "lt" | "lte" | "eq" | "neq";
 
 export interface RuleHit {
   readonly ruleId: string;
+  /** The rule's human name (e.g. `new_device_takeover`) — carried so a decision can be traced back to
+   *  the exact rule that fired. Optional so hand-built hits (tests, fixtures) stay valid. */
+  readonly name?: string;
   readonly tag: string;
   readonly weight: number;
 }

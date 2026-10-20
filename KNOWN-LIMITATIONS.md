@@ -1,6 +1,6 @@
 # Known limitations
 
-Verdict is in **beta** (`v0.7.0`, pre-1.0). It is self-hostable and functional, but it has **not** had
+Verdict is in **beta** (`v1.0.3-beta`, a pre-release of 1.0). It is self-hostable and functional, but it has **not** had
 an independent security audit or a validated production load test. This document is the honest boundary
 of what the current release is and isn't, so you can evaluate it with eyes open. It is **not** yet
 recommended for unsupervised production payment decisions.
@@ -38,7 +38,7 @@ PostgreSQL instance yourself.
 |---|---|---|
 | Verdict log, activity log, replay samples, idempotency keys, outbox | PostgreSQL (`STORE`) | ✅ |
 | Cases, labels, users, API keys, webhooks, notifications, audit log | PostgreSQL (`STORE`) | ✅ |
-| **Policies (versions, rollback) and allow/block/watch lists** | PostgreSQL, via a write-through cache | ✅ (as of the unreleased changes) |
+| **Policies (versions, rollback) and allow/block/watch lists** | PostgreSQL, via a write-through cache | ✅ (since the 1.0 beta line) |
 | Rate limits, velocity, idempotency (multi-replica) | Redis when `REDIS_URL` is set | ✅ (shared); otherwise per-process |
 | Runtime settings (rate-limit / alert / retention overrides) | PostgreSQL | ✅ |
 | Anomaly baselines, entity graph | PostgreSQL (`STORE`) | ✅ |
@@ -76,6 +76,14 @@ Webhook delivery is durable, but the **receiver's** side effects are outside Ver
 - **Distributed tracing** is off until you set `OTEL_EXPORTER_OTLP_ENDPOINT`. When on, the request/decision path is traced over OTLP/HTTP (W3C trace-context, incoming `traceparent` honoured). Outbound webhook/notification deliveries run off the durable outbox after the request returns and are **not yet** linked into the originating trace — that propagation is planned.
 - `RETENTION_VACUUM` issues a PostgreSQL `VACUUM`; confirm your managed-Postgres permissions allow it.
 - The engine can only report disk health for filesystems mounted into its **own** container.
+
+## Load testing
+No *published, validated* production load test or capacity figure ships with this release — the
+sub-100 ms claim has not been certified on reference hardware, and multi-replica operation is not yet
+load-tested. A closed-loop traffic simulator is included (`npm run simulate`) so you can drive a
+running engine with realistic labeled traffic, measure latency/throughput under concurrency, and
+validate the shadow-mode catch-rate against injected fraud — but establishing and publishing a
+capacity envelope on your own hardware is still yours to do.
 
 ## Not included / not validated yet
 Independent security review, PCI scope, a guaranteed latency SLA, high-availability failover, upgrade

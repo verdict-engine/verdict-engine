@@ -7,6 +7,7 @@ import { MemoryStore } from "@shared/adapters/memory-store.adapter";
 import { MonotonicIdGenerator } from "@shared/adapters/monotonic-id-generator.adapter";
 import type { Collection, Store, TxContext } from "@shared/ports/store.port";
 import type { AlertSettings } from "@shared/adapters/alert-settings";
+import type { ShadowSettings } from "@shared/adapters/shadow-settings";
 import type { DeviceId, EventId, PolicyId, UserId } from "@shared/domain/ids";
 import type { FeatureStorePort } from "@contexts/feature-store/application/feature-store.port";
 import type { RiskEvent } from "@contexts/ingest/application/ingest.port";
@@ -106,6 +107,8 @@ function makeHarness(overrides: { store?: Store; bus?: MockProxy<EventBus> } = {
   const policies = mock<PolicyRepositoryPort>();
   const alerts = mock<AlertSettings>();
   alerts.anomalyThreshold.mockResolvedValue(3);
+  const shadow = mock<ShadowSettings>();
+  shadow.forced.mockResolvedValue(false);
   lists.check.mockResolvedValue({ decision: "none" });
   policies.loadFor.mockResolvedValue(POLICY);
   features.snapshot.mockResolvedValue({
@@ -125,7 +128,7 @@ function makeHarness(overrides: { store?: Store; bus?: MockProxy<EventBus> } = {
   const svc = new DecideService(
     features, graph, anomaly, rules, scorer, lists, policies,
     new StoreVerdictLog(backing), new StoreReplayLog(backing), new StoreActivityLog(backing),
-    new StoreIdempotency(backing), outbox, ids, clock, backing, alerts,
+    new StoreIdempotency(backing), outbox, ids, clock, backing, alerts, shadow,
   );
 
   return {

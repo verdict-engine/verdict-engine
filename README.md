@@ -175,6 +175,28 @@ The application depends on the `STORE` port rather than directly on a database.
 
 PostgreSQL migrations run before the HTTP server accepts traffic. Redis is optional; with `REDIS_URL` it shares rate limits, idempotency, and velocity state across replicas. A retention job prunes the append-only collections on a timer (`RETENTION_*`), and `GET /v1/config/storage` reports the store's size, per-collection row counts, **server-disk health** per mount (`DISK_HEALTH_PATHS`), and a per-service breakdown — with matching `verdict_disk_*` Prometheus gauges.
 
+### Load & closed-loop testing
+
+`npm run simulate` drives a running engine with a realistic, **labeled** traffic stream — a legit
+baseline plus fraud archetypes crafted to trip the real signals (account-takeover cashouts that fire
+the takeover + anomaly rules, and velocity-only card-testing rings the demo ruleset deliberately
+misses). It paces load at a target RPS under bounded concurrency and reports latency percentiles
+(p50/p95/p99), throughput, and verdict mix, so you can measure the decision path under sustained
+concurrency rather than trusting the single-request number.
+
+Run in the default **shadow mode**, it then closes the loop: it reports chargebacks for the fraud it
+injected and reads `GET /v1/shadow/report`, so the engine's measured catch-rate can be checked against
+the ground truth the simulator knows it planted — an end-to-end validation of signals → scoring →
+shadow → learning loop → report, with no real money. It bootstraps its own operator token and API key
+against a fresh local engine, or reuses `VERDICT_API_KEY` / `VERDICT_TOKEN` if you set them.
+
+```bash
+npm run simulate -- --events 5000 --rps 400 --concurrency 100
+```
+
+This is a self-testing harness, not a published benchmark — establish your own capacity envelope on
+your hardware (see [KNOWN-LIMITATIONS.md](./KNOWN-LIMITATIONS.md)).
+
 ## Client SDKs
 
 Official client libraries wrap the API-key data plane (`decide`, `decideBatch`, `decideAsync`, `getDecision`, `recordChargeback`) with typed events/verdicts, per-request timeouts, and automatic retry with backoff:
@@ -231,6 +253,7 @@ test/                    end-to-end and hardening tests
 | `npm run test:e2e` | Run end-to-end tests under `test/` |
 | `npm run export:training-data` | Export a labelled dataset (real labels ⋈ feature snapshots) from Postgres |
 | `npm run train:model [-- --data f.json]` | Retrain the ML scorer — on your exported labels, or synthetic by default — and rewrite the weights |
+| `npm run simulate [-- --events N --rps R]` | Drive a running engine with realistic, labeled traffic — measures latency/throughput, then validates the shadow-mode catch-rate against injected fraud (see [Load & closed-loop testing](#load--closed-loop-testing)) |
 | `npm run build` | Compile the production build |
 | `npm run audit:ci` | Check production dependencies for high-severity issues |
 

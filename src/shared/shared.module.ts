@@ -9,6 +9,7 @@ import { InMemoryRateLimiter } from "./adapters/in-memory-rate-limiter.adapter";
 import { RedisRateLimiter } from "./adapters/redis-rate-limiter.adapter";
 import { RATE_LIMIT_SETTINGS, RateLimitSettings } from "./adapters/rate-limit-settings";
 import { ALERT_SETTINGS, AlertSettings } from "./adapters/alert-settings";
+import { SHADOW_SETTINGS, ShadowSettings } from "./adapters/shadow-settings";
 import { AUDIT_LOG, AuditLog } from "./adapters/audit-log";
 import { AuditInterceptor } from "./adapters/audit.interceptor";
 import { TenantInterceptor } from "./adapters/tenant.interceptor";
@@ -49,6 +50,7 @@ function createStore(): Store {
     { provide: RATE_LIMITER, useClass: redisEnabled() ? RedisRateLimiter : InMemoryRateLimiter },
     { provide: RATE_LIMIT_SETTINGS, useClass: RateLimitSettings },
     { provide: ALERT_SETTINGS, useClass: AlertSettings },
+    { provide: SHADOW_SETTINGS, useClass: ShadowSettings },
     { provide: AUDIT_LOG, useClass: AuditLog },
     // Tenant scoping must wrap everything else (including the audit write), so it is registered first.
     { provide: APP_INTERCEPTOR, useClass: TenantInterceptor },
@@ -58,6 +60,6 @@ function createStore(): Store {
     ApiKeyGuard,
     RateLimitGuard,
   ],
-  exports: [EVENT_BUS, CLOCK, ID_GENERATOR, STORE, REDIS, RATE_LIMITER, RATE_LIMIT_SETTINGS, ALERT_SETTINGS, AUDIT_LOG, AuthGuard, AdminGuard, ApiKeyGuard, RateLimitGuard],
+  exports: [EVENT_BUS, CLOCK, ID_GENERATOR, STORE, REDIS, RATE_LIMITER, RATE_LIMIT_SETTINGS, ALERT_SETTINGS, SHADOW_SETTINGS, AUDIT_LOG, AuthGuard, AdminGuard, ApiKeyGuard, RateLimitGuard],
 })
 export class SharedModule {}

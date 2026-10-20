@@ -13,7 +13,13 @@ import {
   type AlertSettings,
   type AlertSnapshot,
 } from "@shared/adapters/alert-settings";
-import { AlertConfigDto, RateLimitConfigDto } from "../../../../docs/api-dto";
+import {
+  SHADOW_SETTINGS,
+  ShadowConfigError,
+  type ShadowSettings,
+  type ShadowSnapshot,
+} from "@shared/adapters/shadow-settings";
+import { AlertConfigDto, RateLimitConfigDto, ShadowConfigDto } from "../../../../docs/api-dto";
 
 interface RateLimitPatch {
   decisionsPerMin?: number | null;
@@ -24,6 +30,10 @@ interface AlertPatch {
   anomalyZScore?: number | null;
 }
 
+interface ShadowPatch {
+  forceShadow?: boolean | null;
+}
+
 @ApiTags("Settings")
 @ApiBearerAuth("bearer")
 @Controller("v1/config")
@@ -32,6 +42,7 @@ export class SettingsController {
   constructor(
     @Inject(RATE_LIMIT_SETTINGS) private readonly rateLimits: RateLimitSettings,
     @Inject(ALERT_SETTINGS) private readonly alerts: AlertSettings,
+    @Inject(SHADOW_SETTINGS) private readonly shadow: ShadowSettings,
   ) {}
 
   @Get("rate-limits")
@@ -78,6 +89,30 @@ export class SettingsController {
       return await this.alerts.update({ anomalyZScore: body.anomalyZScore });
     } catch (e) {
       if (e instanceof AlertConfigError) throw new BadRequestException({ error: true, message: e.message });
+      throw e;
+    }
+  }
+
+  @Get("shadow")
+  @ApiOperation({
+    summary: "Get the force-shadow setting",
+    description: "Admin only. Whether every decision is currently forced into shadow mode (non-enforcing) deployment-wide, regardless of the per-request X-Verdict-Mode header.",
+  })
+  shadow_get(): Promise<ShadowSnapshot> {
+    return this.shadow.snapshot();
+  }
+
+  @Put("shadow")
+  @ApiOperation({
+    summary: "Update the force-shadow setting",
+    description: "Admin only. Turn deployment-wide force-shadow on or off — when on, every decision runs non-enforcing (logged for comparison, no fan-out, no case). Send null to revert to the default (off). Applies within ~10s.",
+  })
+  @ApiBody({ type: ShadowConfigDto })
+  async shadow_put(@Body() body: ShadowPatch): Promise<ShadowSnapshot> {
+    try {
+      return await this.shadow.update({ forceShadow: body.forceShadow });
+    } catch (e) {
+      if (e instanceof ShadowConfigError) throw new BadRequestException({ error: true, message: e.message });
       throw e;
     }
   }

@@ -488,6 +488,11 @@ export class AlertConfigDto {
   anomalyZScore?: number | null;
 }
 
+export class ShadowConfigDto {
+  @ApiPropertyOptional({ description: "When true, every decision is forced into shadow mode (non-enforcing) deployment-wide, regardless of the per-request X-Verdict-Mode header. null reverts to the default (off).", example: true })
+  forceShadow?: boolean | null;
+}
+
 export class RetentionConfigDto {
   @ApiPropertyOptional({ description: "Days to keep the verdict log. 0 = keep forever; null reverts to the env default.", example: 365 })
   verdicts?: number | null;

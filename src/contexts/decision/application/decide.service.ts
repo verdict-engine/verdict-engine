@@ -4,6 +4,7 @@ import { CLOCK, type Clock } from "@shared/ports/clock.port";
 import { ID_GENERATOR, type IdGenerator } from "@shared/ports/id-generator.port";
 import { STORE, type Store } from "@shared/ports/store.port";
 import { ALERT_SETTINGS, type AlertSettings } from "@shared/adapters/alert-settings";
+import { SHADOW_SETTINGS, type ShadowSettings } from "@shared/adapters/shadow-settings";
 import { ALERT_ANOMALY, type AnomalyAlertPayload } from "@shared/domain/alerts";
 import { causeMessage, logEvent } from "@shared/observability/log";
 import { decisionDuration, decisionsTotal, degradedTotal, shadowDecisionsTotal } from "@shared/observability/metrics";
@@ -38,13 +39,13 @@ import {
 } from "./policy-repository.port";
 import { VERDICT_LOG_PORT, type VerdictLogPort } from "./verdict-log.port";
 import { REPLAY_LOG_PORT, type ReplayLogPort, type ReplaySample } from "./replay-log.port";
-import { ACTIVITY_LOG_PORT, type ActivityEntry, type ActivityLogPort } from "./activity-log.port";
+import { ACTIVITY_LOG_PORT, type ActivityEntry, type ActivityLogPort, type RuleFired } from "./activity-log.port";
 import { IDEMPOTENCY_STORE, type IdempotencyStore } from "./idempotency.port";
 import { OUTBOX_PORT, type OutboxPort } from "./outbox.port";
 import { sanitizeRequest } from "../domain/sanitize";
 
 type Reason = { tag: string; points: number };
-type Outcome = { decision: Decision; reviewQueue?: string; replay?: ReplaySample };
+type Outcome = { decision: Decision; reviewQueue?: string; replay?: ReplaySample; rulesFired?: RuleFired[] };
 
 /**
  * The orchestrator — it owns only the wiring of the request path: no rules math,
@@ -71,6 +72,7 @@ export class DecideService implements DecidePort {
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(STORE) private readonly store: Store,
     @Inject(ALERT_SETTINGS) private readonly alerts: AlertSettings,
+    @Inject(SHADOW_SETTINGS) private readonly shadow: ShadowSettings,
   ) {}
 
   async decide(
@@ -88,10 +90,15 @@ export class DecideService implements DecidePort {
     }
 
     return tracer.withSpan("decision.decide", async (span) => {
+      // A deployment-wide "force shadow" setting lets an operator run every decision non-enforcing
+      // (an evaluation period) from the dashboard, overriding the per-request header.
+      const forced = await this.shadow.forced();
+      const effectiveMode: DecisionMode = forced ? "shadow" : mode;
       span.setAttribute("event.type", event.type);
-      span.setAttribute("mode", mode);
+      span.setAttribute("mode", effectiveMode);
+      if (forced) span.setAttribute("shadow.forced", true);
       const policy = await this.policies.loadFor(event.type);
-      const outcome = await tracer.withSpan("decision.evaluate", () => this.evaluate(event, policy, mode));
+      const outcome = await tracer.withSpan("decision.evaluate", () => this.evaluate(event, policy, effectiveMode));
       const decision = await tracer.withSpan("decision.commit", () => this.commit(outcome, event, correlationId, key));
       decisionDuration.observe(Date.now() - started);
       // `decision` is the winner's — on a concurrent duplicate, commit returns the already-committed one.
@@ -124,6 +131,7 @@ export class DecideService implements DecidePort {
         anomaly: await tracer.withSpan("anomaly.features", () => this.anomaly.featuresFor(event)),
       };
       const hits = await tracer.withSpan("rules.evaluate", () => this.rules.evaluate(event, snapshot));
+      const rulesFired: RuleFired[] = hits.map((h) => ({ ruleId: h.ruleId, name: h.name ?? h.ruleId, tag: h.tag, weight: h.weight }));
       const score = await tracer.withSpan("scorer.score", () => this.scorer.score(hits, snapshot));
       const band = resolveVerdict(policy, score);
 
@@ -150,7 +158,7 @@ export class DecideService implements DecidePort {
         score: decision.score,
         decidedAt: decision.decidedAt,
       };
-      return { decision, reviewQueue, replay };
+      return { decision, reviewQueue, replay, rulesFired };
     } catch (cause) {
       // Fail on purpose to the policy's declared outcome — never a partial decision.
       const verdict: Verdict = policy.onError === "fail_open" ? "allow" : "deny";
@@ -174,7 +182,7 @@ export class DecideService implements DecidePort {
    * covered because the idempotency record committed atomically with the verdict.
    */
   private async commit(outcome: Outcome, event: RiskEvent, correlationId: string, key: string): Promise<Decision> {
-    const entry = this.activityEntry(outcome.decision, event);
+    const entry = this.activityEntry(outcome.decision, event, outcome.rulesFired);
     const outboxEvent = this.event(
       VERDICT_REACHED,
       correlationId,
@@ -205,7 +213,7 @@ export class DecideService implements DecidePort {
   }
 
   /** Pair the (masked) request with its verdict for the API interaction log. */
-  private activityEntry(decision: Decision, event: RiskEvent): ActivityEntry {
+  private activityEntry(decision: Decision, event: RiskEvent, rulesFired?: RuleFired[]): ActivityEntry {
     return {
       id: decision.id,
       eventId: decision.eventId,
@@ -214,6 +222,7 @@ export class DecideService implements DecidePort {
       verdict: decision.verdict,
       score: decision.score,
       reasons: decision.reasons,
+      ...(rulesFired && rulesFired.length > 0 ? { rulesFired } : {}),
       policyId: decision.policyId,
       policyVersion: decision.policyVersion,
       decidedAt: decision.decidedAt,
